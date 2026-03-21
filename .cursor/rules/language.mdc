@@ -1,0 +1,6 @@
+---
+description: Application UI language and i18n
+alwaysApply: true
+---
+
+The application (block of flats) default UI language is Greek. The app should be translatable (i18n support).

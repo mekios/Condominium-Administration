@@ -1,0 +1,28 @@
+---
+description: 
+globs: frontend/**/*.{html, css, scss, sass, ts, tsx, js, jsx}, **/*.{html, css, scss, sass, tsx, jsx}
+alwaysApply: false
+---
+
+# Frontend Figma + Responsive Rule
+
+- Use this Figma as the primary component/style reference for UI work:
+  - https://www.figma.com/design/KGMKr1LvtObELhepvaYeOI/Free-Dark-Admin-Dashboards--Community-?node-id=4928-53271&p=f&t=Cffq2aMx7gf0z8ys-0
+- Build UI components to match the Figma structure, spacing rhythm, typography scale, and visual hierarchy.
+- All new and updated UI must be responsive by default.
+- Do not ship fixed-width layouts for page-level containers or core interactive components.
+
+## Responsive baseline
+
+- Mobile-first styling.
+- Support at least these breakpoints:
+  - mobile: `< 768px`
+  - tablet: `768px - 1023px`
+  - desktop: `>= 1024px`
+- Ensure key screens remain usable at narrow widths without horizontal scrolling.
+- Keep touch targets and form controls comfortably usable on mobile.
+
+## PR/check expectations
+
+- For UI changes, include quick verification notes for mobile, tablet, and desktop behavior.
+- If a Figma element is intentionally deviated from, document the reason in the change notes.

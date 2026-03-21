@@ -1,0 +1,5 @@
+---
+alwaysApply: true
+---
+
+Always reply to the user in English. Use Greek only for project-specific labels, strings, or when the user explicitly asks for Greek.

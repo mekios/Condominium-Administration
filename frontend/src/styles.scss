@@ -1,0 +1,96 @@
+@use '@angular/material' as mat;
+
+@include mat.core();
+$theme: mat.define-theme((
+  color: (
+    theme-type: dark,
+    primary: mat.$azure-palette,
+    tertiary: mat.$violet-palette,
+  ),
+));
+@include mat.all-component-themes($theme);
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  font-family: "Roboto", "Segoe UI", Arial, sans-serif;
+  background: #0d111a;
+}
+
+/* Align Material date controls with app dark palette */
+.mat-mdc-form-field {
+  --mdc-filled-text-field-container-color: #0d1430;
+  --mdc-filled-text-field-hover-container-color: #101a38;
+  --mdc-filled-text-field-focus-active-indicator-color: #6d8dce;
+  --mdc-filled-text-field-active-indicator-color: #385089;
+  --mdc-filled-text-field-input-text-color: #f4f8ff;
+  --mdc-filled-text-field-label-text-color: #9db1e2;
+  --mdc-filled-text-field-focus-label-text-color: #d7e4ff;
+  --mdc-filled-text-field-caret-color: #cfe0ff;
+  --mat-form-field-container-text-font: "Roboto", "Segoe UI", Arial, sans-serif;
+  --mat-form-field-subscript-text-font: "Roboto", "Segoe UI", Arial, sans-serif;
+  --mat-form-field-container-height: 38px;
+  --mat-form-field-container-vertical-padding: 6px;
+}
+
+.mat-mdc-form-field .mat-mdc-text-field-wrapper {
+  background: #0d1430 !important;
+  border: 1px solid #31416c !important;
+  border-radius: 10px !important;
+}
+
+/* Force compact control height regardless of Material internals/version */
+.mat-mdc-form-field .mdc-text-field {
+  height: 38px !important;
+}
+
+.mat-mdc-form-field .mat-mdc-form-field-infix {
+  min-height: 38px !important;
+  padding-top: 6px !important;
+  padding-bottom: 6px !important;
+}
+
+.mat-mdc-form-field.mat-focused .mat-mdc-text-field-wrapper {
+  border-color: #6d8dce !important;
+  box-shadow: 0 0 0 2px rgba(109, 141, 206, 0.25);
+}
+
+.mat-mdc-form-field .mdc-text-field__input {
+  color: #f4f8ff !important;
+  font-family: "Roboto", "Segoe UI", Arial, sans-serif !important;
+}
+
+.mat-mdc-form-field .mdc-floating-label {
+  color: #9db1e2 !important;
+}
+
+.mat-mdc-form-field.mat-focused .mdc-floating-label {
+  color: #d7e4ff !important;
+}
+
+.mat-mdc-form-field .mat-datepicker-toggle-default-icon,
+.mat-mdc-form-field .mat-mdc-icon-button {
+  color: #c9d9ff !important;
+  fill: #c9d9ff !important;
+}
+
+/* Remove reserved subscript/hint space to align fields with adjacent controls */
+.mat-mdc-form-field-subscript-wrapper {
+  display: none !important;
+}
+
+.mat-mdc-form-field-bottom-align::before {
+  display: none !important;
+}
+
+.mat-datepicker-content {
+  background: #101a33;
+  color: #e6efff;
+}
