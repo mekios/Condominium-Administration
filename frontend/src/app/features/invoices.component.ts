@@ -1,11 +1,13 @@
 import { Component, HostListener, OnInit } from '@angular/core';
 import { NgFor, NgIf } from '@angular/common';
 import { FormsModule } from '@angular/forms';
-import { MatDatepicker, MatDatepickerModule } from '@angular/material/datepicker';
+import { MatDatepickerModule } from '@angular/material/datepicker';
 import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatInputModule } from '@angular/material/input';
 
 import { MonthFormatPipe } from '../core/month-format.pipe';
+import { MonthPickerComponent } from '../core/month-picker/month-picker.component';
+import { currentMonth, formatMonthYear } from '../core/month.utils';
 import { EuroPipe } from '../core/euro.pipe';
 import { HttpClient } from '@angular/common/http';
 import { combineLatest, finalize } from 'rxjs';
@@ -13,6 +15,7 @@ import { combineLatest, finalize } from 'rxjs';
 import { AdminModeService } from '../core/admin-mode.service';
 import { AppDataService, Invoice, Me } from '../core/app-data.service';
 import { API_BASE } from '../core/api.constants';
+import { DialogService } from '../core/dialog/dialog.service';
 
 type DraftInvoiceItem = {
   apartment_unit_code: string;
@@ -26,10 +29,12 @@ type DraftInvoiceItem = {
   invoice_total: string;
 };
 
+type InvoiceFilterMode = 'single' | 'range' | 'all';
+
 @Component({
   standalone: true,
   selector: 'app-invoices',
-  imports: [NgIf, NgFor, FormsModule, MonthFormatPipe, EuroPipe, MatDatepickerModule, MatFormFieldModule, MatInputModule],
+  imports: [NgIf, NgFor, FormsModule, MonthFormatPipe, EuroPipe, MonthPickerComponent, MatDatepickerModule, MatFormFieldModule, MatInputModule],
   template: `
     <section class="panel">
       <div class="panel-head">
@@ -37,26 +42,34 @@ type DraftInvoiceItem = {
         <p>Δημιουργία και έλεγχος λογαριασμών διαμερισμάτων ανά μήνα.</p>
       </div>
 
+      <section class="month-filter">
+        <div class="filter-modes">
+          <button type="button" class="mode-btn" [class.active]="filterMode === 'single'" (click)="setFilterMode('single')">
+            Ένας μήνας
+          </button>
+          <button type="button" class="mode-btn" [class.active]="filterMode === 'range'" (click)="setFilterMode('range')">
+            Εύρος
+          </button>
+          <button type="button" class="mode-btn" [class.active]="filterMode === 'all'" (click)="setFilterMode('all')">
+            Όλοι
+          </button>
+        </div>
+
+        <div class="filter-body" *ngIf="filterMode === 'single'">
+          <app-month-picker [value]="filterExactMonth" (valueChange)="setExactMonth($event)" />
+        </div>
+
+        <div class="filter-body range" *ngIf="filterMode === 'range'">
+          <app-month-picker label="Από" [value]="filterFromMonth" (valueChange)="setFromMonth($event)" />
+          <span class="range-sep" aria-hidden="true">→</span>
+          <app-month-picker label="Έως" [value]="filterToMonth" (valueChange)="setToMonth($event)" />
+        </div>
+
+        <p class="filter-hint" *ngIf="filterMode === 'all'">Εμφάνιση λογαριασμών από όλους τους μήνες.</p>
+        <p class="filter-hint" *ngIf="filterMode !== 'all'">{{ filterSummary }}</p>
+      </section>
+
       <div class="actions">
-        <mat-form-field class="field">
-          <mat-label>Ακριβής μήνας</mat-label>
-          <input matInput [matDatepicker]="exactMonthPicker" [value]="monthToDate(filterExactMonth)" (click)="exactMonthPicker.open()" readonly />
-          <mat-datepicker-toggle matIconSuffix [for]="exactMonthPicker"></mat-datepicker-toggle>
-          <mat-datepicker #exactMonthPicker startView="multi-year" (monthSelected)="selectMonth($event, exactMonthPicker, 'exact')"></mat-datepicker>
-        </mat-form-field>
-        <mat-form-field class="field">
-          <mat-label>Από μήνα</mat-label>
-          <input matInput [matDatepicker]="fromMonthPicker" [value]="monthToDate(filterFromMonth)" (click)="fromMonthPicker.open()" readonly />
-          <mat-datepicker-toggle matIconSuffix [for]="fromMonthPicker"></mat-datepicker-toggle>
-          <mat-datepicker #fromMonthPicker startView="multi-year" (monthSelected)="selectMonth($event, fromMonthPicker, 'from')"></mat-datepicker>
-        </mat-form-field>
-        <mat-form-field class="field">
-          <mat-label>Έως μήνα</mat-label>
-          <input matInput [matDatepicker]="toMonthPicker" [value]="monthToDate(filterToMonth)" (click)="toMonthPicker.open()" readonly />
-          <mat-datepicker-toggle matIconSuffix [for]="toMonthPicker"></mat-datepicker-toggle>
-          <mat-datepicker #toMonthPicker startView="multi-year" (monthSelected)="selectMonth($event, toMonthPicker, 'to')"></mat-datepicker>
-        </mat-form-field>
-        <button class="btn btn-ghost" (click)="clearFilters()">Καθαρισμός φίλτρων</button>
         <button class="btn btn-primary" (click)="load()">Ανανέωση</button>
         <button class="btn btn-danger action-right" *ngIf="writeEnabled" (click)="recallMonth()">
           Ανάκληση λογαριασμών μήνα
@@ -140,12 +153,7 @@ type DraftInvoiceItem = {
           </header>
 
           <div class="generate-controls">
-            <mat-form-field>
-              <mat-label>Μήνας</mat-label>
-              <input matInput [matDatepicker]="generateMonthPicker" [value]="monthToDate(month)" (click)="generateMonthPicker.open()" readonly />
-              <mat-datepicker-toggle matIconSuffix [for]="generateMonthPicker"></mat-datepicker-toggle>
-              <mat-datepicker #generateMonthPicker startView="multi-year" (monthSelected)="selectGenerationMonth($event, generateMonthPicker)"></mat-datepicker>
-            </mat-form-field>
+            <app-month-picker label="Μήνας" [value]="month" (valueChange)="month = $event" />
             <button class="btn btn-secondary" (click)="previewGenerateMonth()" [disabled]="previewLoading">
               {{ previewLoading ? 'Προεπισκόπηση...' : 'Προεπισκόπηση κατανομής' }}
             </button>
@@ -284,21 +292,60 @@ type DraftInvoiceItem = {
       color: #93a8da;
       font-size: 0.9rem;
     }
+    .month-filter {
+      border: 1px solid #243152;
+      border-radius: 12px;
+      background: rgba(13, 20, 48, 0.55);
+      padding: 0.85rem;
+      margin-bottom: 0.85rem;
+    }
+    .filter-modes {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.4rem;
+      margin-bottom: 0.75rem;
+    }
+    .mode-btn {
+      border: 1px solid #3b4b79;
+      border-radius: 999px;
+      background: transparent;
+      color: #b8c8ed;
+      padding: 0.38rem 0.85rem;
+      font-size: 0.82rem;
+      cursor: pointer;
+      font-family: inherit;
+    }
+    .mode-btn.active {
+      border-color: #6d62ff;
+      background: linear-gradient(135deg, rgba(79, 120, 255, 0.28), rgba(109, 98, 255, 0.24));
+      color: #f4f8ff;
+      font-weight: 600;
+    }
+    .filter-body {
+      display: grid;
+      gap: 0.5rem;
+    }
+    .filter-body.range {
+      grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+      align-items: end;
+      gap: 0.65rem;
+    }
+    .range-sep {
+      color: #7f96c8;
+      font-size: 1.1rem;
+      padding-bottom: 0.65rem;
+    }
+    .filter-hint {
+      margin: 0.55rem 0 0;
+      color: #8fa3d4;
+      font-size: 0.82rem;
+    }
     .actions {
       display: flex;
       gap: 0.6rem;
       flex-wrap: wrap;
       margin-bottom: 0.7rem;
       align-items: end;
-    }
-    .field {
-      display: grid;
-      gap: 0.25rem;
-      font-size: 0.78rem;
-      color: #9db1e2;
-    }
-    .field input:not([matInput]) {
-      min-width: 170px;
     }
     .invoice-grid {
       margin-top: 0.8rem;
@@ -714,9 +761,10 @@ export class InvoicesComponent implements OnInit {
   invoices: Invoice[] = [];
   filteredInvoices: Invoice[] = [];
   pagedInvoices: Invoice[] = [];
-  filterExactMonth = '';
-  filterFromMonth = '';
-  filterToMonth = '';
+  filterExactMonth = currentMonth();
+  filterFromMonth = currentMonth();
+  filterToMonth = currentMonth();
+  filterMode: InvoiceFilterMode = 'single';
   currentPage = 1;
   readonly pageSize = 16;
   me: Me | null = null;
@@ -744,6 +792,7 @@ export class InvoicesComponent implements OnInit {
     private readonly data: AppDataService,
     private readonly http: HttpClient,
     private readonly adminMode: AdminModeService,
+    private readonly dialog: DialogService,
   ) {}
 
   ngOnInit(): void {
@@ -788,17 +837,85 @@ export class InvoicesComponent implements OnInit {
     return Math.max(1, Math.ceil(this.filteredInvoices.length / this.pageSize));
   }
 
+  get filterSummary(): string {
+    if (this.filterMode === 'single') {
+      return `Εμφάνιση λογαριασμών για ${formatMonthYear(this.filterExactMonth)}.`;
+    }
+    if (this.filterMode === 'range') {
+      return `Εμφάνιση από ${formatMonthYear(this.filterFromMonth)} έως ${formatMonthYear(this.filterToMonth)}.`;
+    }
+    return '';
+  }
+
   onFilterChange(): void {
     this.currentPage = 1;
     this.applyFilters();
   }
 
+  setFilterMode(mode: InvoiceFilterMode): void {
+    this.filterMode = mode;
+    if (mode === 'single' && !this.filterExactMonth) {
+      this.filterExactMonth = currentMonth();
+    }
+    if (mode === 'range') {
+      if (!this.filterFromMonth) this.filterFromMonth = currentMonth();
+      if (!this.filterToMonth) this.filterToMonth = currentMonth();
+    }
+    this.onFilterChange();
+  }
+
+  setExactMonth(month: string): void {
+    if (!month) {
+      this.filterExactMonth = currentMonth();
+    } else {
+      this.filterExactMonth = month;
+    }
+    this.onFilterChange();
+  }
+
+  setFromMonth(month: string): void {
+    if (!month) return;
+    this.filterFromMonth = month;
+    if (this.filterToMonth && month > this.filterToMonth) {
+      this.filterToMonth = month;
+    }
+    this.onFilterChange();
+  }
+
+  setToMonth(month: string): void {
+    if (!month) return;
+    this.filterToMonth = month;
+    if (this.filterFromMonth && month < this.filterFromMonth) {
+      this.filterFromMonth = month;
+    }
+    this.onFilterChange();
+  }
+
   clearFilters(): void {
-    this.filterExactMonth = '';
-    this.filterFromMonth = '';
-    this.filterToMonth = '';
+    this.filterMode = 'single';
+    this.filterExactMonth = currentMonth();
+    this.filterFromMonth = currentMonth();
+    this.filterToMonth = currentMonth();
     this.currentPage = 1;
     this.applyFilters();
+  }
+
+  private applyFilters(): void {
+    this.filteredInvoices = this.invoices.filter((invoice) => {
+      if (this.filterMode === 'all') return true;
+      if (this.filterMode === 'single') {
+        return !this.filterExactMonth || invoice.month === this.filterExactMonth;
+      }
+      if (this.filterFromMonth && invoice.month < this.filterFromMonth) return false;
+      if (this.filterToMonth && invoice.month > this.filterToMonth) return false;
+      return true;
+    });
+    this.updatePagedInvoices();
+  }
+
+  private updatePagedInvoices(): void {
+    const start = (this.currentPage - 1) * this.pageSize;
+    this.pagedInvoices = this.filteredInvoices.slice(start, start + this.pageSize);
   }
 
   goToPage(page: number): void {
@@ -889,21 +1006,26 @@ export class InvoicesComponent implements OnInit {
       return;
     }
     const hasPayments = monthInvoices.some((inv) => Number(inv.paid_total || 0) > 0);
-    const warning = hasPayments ? 'Θα διαγραφούν και οι καταχωρημένες πληρωμές. ' : '';
-    const confirmed = window.confirm(
-      `${warning}Να ανακληθούν και οι ${monthInvoices.length} λογαριασμοί για τον μήνα ${month};`,
-    );
-    if (!confirmed) return;
+    this.dialog
+      .confirm({
+        title: 'Ανάκληση λογαριασμών',
+        message: `Να ανακληθούν οι ${monthInvoices.length} λογαριασμοί για τον μήνα ${month};`,
+        warning: hasPayments ? 'Θα διαγραφούν και οι καταχωρημένες πληρωμές.' : undefined,
+        confirmLabel: 'Ανάκληση',
+      })
+      .subscribe((confirmed) => {
+        if (!confirmed) return;
 
-    this.http.post<{ detail: string }>(`${API_BASE}/api/invoices/recall-month/`, { month, confirm: true }).subscribe({
-      next: (response) => {
-        this.message = response.detail;
-        this.load();
-      },
-      error: (error) => {
-        this.message = error?.error?.detail || 'Αποτυχία ανάκλησης λογαριασμών.';
-      },
-    });
+        this.http.post<{ detail: string }>(`${API_BASE}/api/invoices/recall-month/`, { month, confirm: true }).subscribe({
+          next: (response) => {
+            this.message = response.detail;
+            this.load();
+          },
+          error: (error) => {
+            this.message = error?.error?.detail || 'Αποτυχία ανάκλησης λογαριασμών.';
+          },
+        });
+      });
   }
 
   downloadReceipt(invoice: Invoice): void {
@@ -1020,28 +1142,6 @@ export class InvoicesComponent implements OnInit {
       });
   }
 
-  private applyFilters(): void {
-    this.filteredInvoices = this.invoices.filter((invoice) => {
-      if (this.filterExactMonth && invoice.month !== this.filterExactMonth) return false;
-      if (this.filterFromMonth && invoice.month < this.filterFromMonth) return false;
-      if (this.filterToMonth && invoice.month > this.filterToMonth) return false;
-      return true;
-    });
-    this.updatePagedInvoices();
-  }
-
-  private updatePagedInvoices(): void {
-    const start = (this.currentPage - 1) * this.pageSize;
-    this.pagedInvoices = this.filteredInvoices.slice(start, start + this.pageSize);
-  }
-
-  monthToDate(month: string): Date | null {
-    if (!month) return null;
-    const [y, m] = month.split('-').map(Number);
-    if (!y || !m) return null;
-    return new Date(y, m - 1, 1);
-  }
-
   dateToDate(value: string): Date | null {
     if (!value) return null;
     const d = new Date(`${value}T00:00:00`);
@@ -1051,20 +1151,6 @@ export class InvoicesComponent implements OnInit {
   onPaymentDateChange(value: Date | null): void {
     if (!value) return;
     this.paymentForm.payment_date = this.toIsoDate(value);
-  }
-
-  selectMonth(value: Date, picker: MatDatepicker<Date>, target: 'exact' | 'from' | 'to'): void {
-    const month = `${value.getFullYear()}-${String(value.getMonth() + 1).padStart(2, '0')}`;
-    if (target === 'exact') this.filterExactMonth = month;
-    if (target === 'from') this.filterFromMonth = month;
-    if (target === 'to') this.filterToMonth = month;
-    this.onFilterChange();
-    picker.close();
-  }
-
-  selectGenerationMonth(value: Date, picker: MatDatepicker<Date>): void {
-    this.month = `${value.getFullYear()}-${String(value.getMonth() + 1).padStart(2, '0')}`;
-    picker.close();
   }
 
   private toIsoDate(value: Date): string {

@@ -6,6 +6,7 @@ import { HttpClient } from '@angular/common/http';
 import { Router } from '@angular/router';
 
 import { AdminModeService } from '../core/admin-mode.service';
+import { DialogService } from '../core/dialog/dialog.service';
 import { Me } from '../core/app-data.service';
 import { API_BASE } from '../core/api.constants';
 import { getCategoryConfig, getCategoryIconColor, getCategoryIconGlow, getDisplayLabel, getIconPath } from '../core/expense-categories';
@@ -72,17 +73,19 @@ type ExpenseItem = {
                 <td>{{ expense.id }}</td>
                 <td>#{{ expense.building }}</td>
                 <td class="cat-cell">
-                  <svg
-                    *ngIf="getIconPath(expense.expense_category)"
-                    class="cat-icon"
-                    [style.stroke]="getCategoryIconColor(expense.expense_category)"
-                    [style.filter]="getCategoryIconGlow(expense.expense_category)"
-                    viewBox="0 0 24 24"
-                    aria-hidden="true"
-                  >
-                    <path [attr.d]="getIconPath(expense.expense_category)" />
-                  </svg>
-                  <span>{{ getDisplayLabel(expense) }}</span>
+                  <span class="cat-inner">
+                    <svg
+                      *ngIf="getIconPath(expense.expense_category)"
+                      class="cat-icon"
+                      [style.stroke]="getCategoryIconColor(expense.expense_category)"
+                      [style.filter]="getCategoryIconGlow(expense.expense_category)"
+                      viewBox="0 0 24 24"
+                      aria-hidden="true"
+                    >
+                      <path [attr.d]="getIconPath(expense.expense_category)" />
+                    </svg>
+                    <span>{{ getDisplayLabel(expense) }}</span>
+                  </span>
                 </td>
                 <td>{{ expense.expense_date }}</td>
                 <td>{{ expense.amount | euro }}</td>
@@ -175,6 +178,7 @@ type ExpenseItem = {
       text-align: left;
       white-space: nowrap;
       line-height: 1.35;
+      vertical-align: middle;
     }
     .draft-table th {
       color: #9db2e5;
@@ -191,8 +195,8 @@ type ExpenseItem = {
     .readonly-row {
       cursor: default;
     }
-    .cat-cell {
-      display: flex;
+    .cat-inner {
+      display: inline-flex;
       align-items: center;
       gap: 0.65rem;
     }
@@ -231,6 +235,7 @@ export class ExpensesComponent implements OnInit {
     private readonly http: HttpClient,
     private readonly router: Router,
     private readonly adminMode: AdminModeService,
+    private readonly dialog: DialogService,
   ) {}
 
   ngOnInit(): void {
@@ -276,21 +281,26 @@ export class ExpensesComponent implements OnInit {
 
   deleteExpense(expense: ExpenseItem, event: MouseEvent): void {
     event.stopPropagation();
-    const confirmed = window.confirm(
-      `Να διαγραφεί το έξοδο #${expense.id} (${getDisplayLabel(expense)}, ${expense.amount}€);`,
-    );
-    if (!confirmed) return;
+    this.dialog
+      .confirm({
+        title: 'Διαγραφή εξόδου',
+        message: `Να διαγραφεί το έξοδο #${expense.id} (${getDisplayLabel(expense)}, ${expense.amount}€);`,
+        confirmLabel: 'Διαγραφή',
+      })
+      .subscribe((confirmed) => {
+        if (!confirmed) return;
 
-    this.message = '';
-    this.http.delete(`${API_BASE}/api/accounting/expenses/${expense.id}/`).subscribe({
-      next: () => {
-        this.message = 'Το έξοδο διαγράφηκε.';
-        this.loadExpenses();
-      },
-      error: (error) => {
-        this.message = error?.error?.detail || 'Αποτυχία διαγραφής εξόδου.';
-      },
-    });
+        this.message = '';
+        this.http.delete(`${API_BASE}/api/accounting/expenses/${expense.id}/`).subscribe({
+          next: () => {
+            this.message = 'Το έξοδο διαγράφηκε.';
+            this.loadExpenses();
+          },
+          error: (error) => {
+            this.message = error?.error?.detail || 'Αποτυχία διαγραφής εξόδου.';
+          },
+        });
+      });
   }
 
   readonly getIconPath = getIconPath;

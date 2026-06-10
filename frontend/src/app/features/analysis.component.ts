@@ -2,14 +2,12 @@ import { Component, OnInit } from '@angular/core';
 import { NgFor, NgIf } from '@angular/common';
 import { HttpClient } from '@angular/common/http';
 import { catchError, finalize, forkJoin, of } from 'rxjs';
-import { MatDatepicker, MatDatepickerModule } from '@angular/material/datepicker';
-import { MatFormFieldModule } from '@angular/material/form-field';
-import { MatInputModule } from '@angular/material/input';
 
 import { API_BASE } from '../core/api.constants';
 import { Invoice } from '../core/app-data.service';
 import { EuroPipe } from '../core/euro.pipe';
 import { MonthFormatPipe } from '../core/month-format.pipe';
+import { MonthPickerComponent } from '../core/month-picker/month-picker.component';
 import { getDisplayLabel } from '../core/expense-categories';
 
 type ExpenseItem = {
@@ -34,7 +32,7 @@ type ApartmentAnalysisRow = {
 @Component({
   standalone: true,
   selector: 'app-analysis',
-  imports: [NgIf, NgFor, EuroPipe, MonthFormatPipe, MatDatepickerModule, MatFormFieldModule, MatInputModule],
+  imports: [NgIf, NgFor, EuroPipe, MonthFormatPipe, MonthPickerComponent],
   template: `
     <section class="panel">
       <header class="head">
@@ -42,12 +40,9 @@ type ApartmentAnalysisRow = {
           <h2>Πλήρης ανάλυση ανά διαμέρισμα</h2>
           <p class="hint">Έξοδα μήνα και μερίδιο ανά διαμέρισμα για όλη την πολυκατοικία.</p>
         </div>
-        <mat-form-field class="month">
-          <mat-label>Μήνας</mat-label>
-          <input matInput [matDatepicker]="analysisMonthPicker" [value]="monthToDate(selectedMonth)" (click)="analysisMonthPicker.open()" readonly />
-          <mat-datepicker-toggle matIconSuffix [for]="analysisMonthPicker"></mat-datepicker-toggle>
-          <mat-datepicker #analysisMonthPicker startView="multi-year" (monthSelected)="selectMonth($event, analysisMonthPicker)"></mat-datepicker>
-        </mat-form-field>
+        <div class="toolbar">
+          <app-month-picker [value]="selectedMonth" (valueChange)="onMonthChange($event)" />
+        </div>
       </header>
 
       <p class="hint" *ngIf="loading">Φόρτωση ανάλυσης...</p>
@@ -141,9 +136,13 @@ type ApartmentAnalysisRow = {
       display: flex;
       justify-content: space-between;
       gap: 0.8rem;
-      align-items: flex-start;
+      align-items: flex-end;
+      flex-wrap: wrap;
     }
-    .month { min-width: 170px; }
+    .toolbar {
+      min-width: min(100%, 20rem);
+      flex: 1 1 20rem;
+    }
     h2, h3 {
       margin: 0 0 0.55rem;
       color: #edf3ff;
@@ -292,18 +291,5 @@ export class AnalysisComponent implements OnInit {
           this.message = 'Failed to load full analysis.';
         },
       });
-  }
-
-  monthToDate(month: string): Date | null {
-    if (!month) return null;
-    const [y, m] = month.split('-').map(Number);
-    if (!y || !m) return null;
-    return new Date(y, m - 1, 1);
-  }
-
-  selectMonth(value: Date, picker: MatDatepicker<Date>): void {
-    const month = `${value.getFullYear()}-${String(value.getMonth() + 1).padStart(2, '0')}`;
-    this.onMonthChange(month);
-    picker.close();
   }
 }

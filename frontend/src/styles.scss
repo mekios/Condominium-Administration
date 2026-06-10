@@ -185,3 +185,23 @@ button.btn.btn-danger-icon svg {
 button.btn.btn-danger-icon:hover:not(:disabled) svg {
   stroke: #ff8a9d;
 }
+
+/* App dialog overlay */
+.app-dialog-backdrop {
+  background: rgba(4, 8, 18, 0.72);
+  backdrop-filter: blur(4px);
+}
+
+.app-dialog-panel .mat-mdc-dialog-container {
+  --mdc-dialog-container-color: transparent;
+  padding: 0;
+  border-radius: 14px;
+  overflow: visible;
+  box-shadow: none;
+}
+
+.app-dialog-panel .mat-mdc-dialog-surface {
+  background: transparent;
+  box-shadow: none;
+  overflow: visible;
+}

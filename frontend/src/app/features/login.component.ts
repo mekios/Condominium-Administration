@@ -13,7 +13,7 @@ import { AuthService } from '../core/auth.service';
     <main class="page">
       <section class="panel">
         <div class="brand">
-          <p class="kicker">Block-of-Flats Admin</p>
+          <img src="logo.png" alt="Μεταμόρφωσεως 5 — Χαλάνδρι, Αττική" class="brand-logo" />
           <h1>Σύνδεση</h1>
           <p class="subtitle">Ασφαλής πρόσβαση για διαχείριση πολυκατοικίας.</p>
         </div>
@@ -52,8 +52,20 @@ import { AuthService } from '../core/auth.service';
       box-shadow: 0 20px 40px rgba(0, 0, 0, 0.35);
     }
 
-    .brand { margin-bottom: 1.1rem; }
-    .kicker { margin: 0; font-size: 0.78rem; letter-spacing: 0.08em; text-transform: uppercase; color: #6f86c9; }
+    .brand { margin-bottom: 1.1rem; text-align: center; }
+    .brand-logo {
+      display: block;
+      width: 100%;
+      max-width: 300px;
+      height: auto;
+      margin: 0 auto 0.9rem;
+      padding: 0.75rem 0.95rem;
+      border-radius: 16px;
+      background: rgba(245, 248, 255, 0.92);
+      border: 1px solid rgba(255, 255, 255, 0.5);
+      box-shadow: 0 12px 26px rgba(0, 0, 0, 0.28);
+      backdrop-filter: blur(6px);
+    }
     h1 { margin: 0.15rem 0 0.35rem; color: #f8fbff; font-size: 1.7rem; }
     .subtitle { margin: 0; color: #9cb0df; font-size: 0.92rem; }
 

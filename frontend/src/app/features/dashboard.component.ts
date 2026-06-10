@@ -112,17 +112,19 @@ type ExpenseItem = {
           <tbody>
             <tr *ngFor="let expense of latestExpenses">
               <td class="cat-cell">
-                <svg
-                  *ngIf="getIconPath(expense.expense_category)"
-                  class="cat-icon"
-                  [style.stroke]="getCategoryIconColor(expense.expense_category)"
-                  [style.filter]="getCategoryIconGlow(expense.expense_category)"
-                  viewBox="0 0 24 24"
-                  aria-hidden="true"
-                >
-                  <path [attr.d]="getIconPath(expense.expense_category)" />
-                </svg>
-                <span>{{ getDisplayLabel(expense) }}</span>
+                <span class="cat-inner">
+                  <svg
+                    *ngIf="getIconPath(expense.expense_category)"
+                    class="cat-icon"
+                    [style.stroke]="getCategoryIconColor(expense.expense_category)"
+                    [style.filter]="getCategoryIconGlow(expense.expense_category)"
+                    viewBox="0 0 24 24"
+                    aria-hidden="true"
+                  >
+                    <path [attr.d]="getIconPath(expense.expense_category)" />
+                  </svg>
+                  <span>{{ getDisplayLabel(expense) }}</span>
+                </span>
               </td>
               <td>{{ expense.amount | euro }}</td>
             </tr>
@@ -352,6 +354,7 @@ type ExpenseItem = {
       border-bottom: 1px solid #243152;
       padding: 0.5rem;
       text-align: left;
+      vertical-align: middle;
     }
     .expenses-table th {
       color: #9fb6e8;
@@ -364,8 +367,8 @@ type ExpenseItem = {
       border-bottom: 0;
       background: rgba(85, 104, 166, 0.2);
     }
-    .cat-cell {
-      display: flex;
+    .cat-inner {
+      display: inline-flex;
       align-items: center;
       gap: 0.65rem;
     }

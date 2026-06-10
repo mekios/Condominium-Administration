@@ -11,6 +11,7 @@ from reportlab.lib import colors
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
 from reportlab.lib.units import mm
+from reportlab.lib.utils import ImageReader
 from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
@@ -149,6 +150,14 @@ def parse_month(value: str) -> tuple[int, int]:
 
 _PDF_FONTS_REGISTERED = False
 
+_PDF_LOGO_PATH = os.path.join(os.path.dirname(__file__), "assets", "logo.png")
+
+
+def _pdf_logo() -> ImageReader | None:
+    if os.path.exists(_PDF_LOGO_PATH):
+        return ImageReader(_PDF_LOGO_PATH)
+    return None
+
 
 def _register_pdf_fonts() -> tuple[str, str]:
     global _PDF_FONTS_REGISTERED
@@ -252,9 +261,9 @@ def _build_branded_pdf(
     meta_table.setStyle(
         TableStyle(
             [
-                ("BACKGROUND", (0, 0), (-1, -1), colors.HexColor("#EEF2FA")),
-                ("BOX", (0, 0), (-1, -1), 1, colors.HexColor("#CBD7EE")),
-                ("INNERGRID", (0, 0), (-1, -1), 0.5, colors.HexColor("#D6E0F2")),
+                ("BACKGROUND", (0, 0), (-1, -1), colors.HexColor("#F1EEF8")),
+                ("BOX", (0, 0), (-1, -1), 1, colors.HexColor("#C8BAE2")),
+                ("INNERGRID", (0, 0), (-1, -1), 0.5, colors.HexColor("#DBD1ED")),
                 ("LEFTPADDING", (0, 0), (-1, -1), 10),
                 ("RIGHTPADDING", (0, 0), (-1, -1), 10),
                 ("TOPPADDING", (0, 0), (-1, -1), 6),
@@ -274,11 +283,12 @@ def _build_branded_pdf(
                 ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#2A4587")),
                 ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
                 ("TEXTCOLOR", (0, 1), (-1, -1), colors.HexColor("#1A2A53")),
+                ("LINEBELOW", (0, 0), (-1, 0), 1.6, colors.HexColor("#856DB3")),
                 ("ALIGN", (0, 0), (0, -1), "LEFT"),
                 ("ALIGN", (1, 0), (1, -1), "LEFT"),
-                ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.HexColor("#F7FAFF"), colors.HexColor("#EEF3FC")]),
-                ("BOX", (0, 0), (-1, -1), 1, colors.HexColor("#CBD7EE")),
-                ("INNERGRID", (0, 0), (-1, -1), 0.6, colors.HexColor("#D6E0F2")),
+                ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.HexColor("#F7FAFF"), colors.HexColor("#F3EEFA")]),
+                ("BOX", (0, 0), (-1, -1), 1, colors.HexColor("#C8BAE2")),
+                ("INNERGRID", (0, 0), (-1, -1), 0.6, colors.HexColor("#DBD1ED")),
                 ("LEFTPADDING", (0, 0), (-1, -1), 9),
                 ("RIGHTPADDING", (0, 0), (-1, -1), 9),
                 ("TOPPADDING", (0, 0), (-1, -1), 7),
@@ -299,6 +309,7 @@ def _build_branded_pdf(
                 ("FONTNAME", (1, 0), (1, -1), bold_font),
                 ("BOX", (0, 0), (-1, -1), 1, colors.HexColor("#3E5FA2")),
                 ("INNERGRID", (0, 0), (-1, -1), 0.5, colors.HexColor("#34528E")),
+                ("LINEABOVE", (0, 0), (-1, 0), 1.6, colors.HexColor("#B9A6D6")),
                 ("LEFTPADDING", (0, 0), (-1, -1), 10),
                 ("RIGHTPADDING", (0, 0), (-1, -1), 10),
                 ("TOPPADDING", (0, 0), (-1, -1), 6),
@@ -311,35 +322,39 @@ def _build_branded_pdf(
     def draw_header(canvas, _doc):
         page_w, page_h = A4
         canvas.saveState()
-        canvas.setFillColor(colors.HexColor("#0F1C36"))
-        canvas.rect(14 * mm, page_h - 54 * mm, page_w - 28 * mm, 40 * mm, fill=1, stroke=0)
-        canvas.setFillColor(colors.HexColor("#2A4587"))
-        canvas.rect(14 * mm, page_h - 54 * mm, 60 * mm, 40 * mm, fill=1, stroke=0)
-        canvas.setFillColor(colors.HexColor("#4B67D9"))
-        canvas.rect(74 * mm, page_h - 54 * mm, page_w - 88 * mm, 40 * mm, fill=1, stroke=0)
 
-        # Building outline logo.
-        canvas.setStrokeColor(colors.white)
-        canvas.setLineWidth(1.4)
-        logo_x = 24 * mm
-        logo_y = page_h - 48 * mm
-        canvas.line(logo_x, logo_y + 15, logo_x, logo_y)
-        canvas.line(logo_x, logo_y, logo_x + 9 * mm, logo_y - 4 * mm)
-        canvas.line(logo_x + 9 * mm, logo_y - 4 * mm, logo_x + 18 * mm, logo_y)
-        canvas.line(logo_x + 18 * mm, logo_y, logo_x + 18 * mm, logo_y + 15)
-        canvas.line(logo_x + 5 * mm, logo_y + 6, logo_x + 13 * mm, logo_y + 6)
-        canvas.line(logo_x + 5 * mm, logo_y + 6, logo_x + 5 * mm, logo_y - 2)
-        canvas.line(logo_x + 13 * mm, logo_y + 6, logo_x + 13 * mm, logo_y - 2)
+        # Full-color logo on a light header.
+        logo = _pdf_logo()
+        if logo is not None:
+            logo_h = 24 * mm
+            iw, ih = logo.getSize()
+            logo_w = logo_h * (iw / ih)
+            canvas.drawImage(
+                logo,
+                14 * mm,
+                page_h - 14 * mm - logo_h,
+                width=logo_w,
+                height=logo_h,
+                mask="auto",
+                preserveAspectRatio=True,
+            )
+        else:
+            canvas.setFillColor(colors.HexColor("#1A2A53"))
+            canvas.setFont(bold_font, 13)
+            canvas.drawString(14 * mm, page_h - 24 * mm, "ΜΕΤΑΜΟΡΦΩΣΕΩΣ 5")
 
-        canvas.setFillColor(colors.white)
-        canvas.setFont(bold_font, 13)
-        canvas.drawString(58 * mm, page_h - 27 * mm, "ΕΦΑΡΜΟΓΗ ΔΙΑΧΕΙΡΙΣΗΣ")
-        canvas.setFont(bold_font, 11)
-        canvas.drawString(58 * mm, page_h - 34 * mm, "ΜΕΤΑΜΟΡΦΩΣΕΩΣ 5")
+        # Document title block (right aligned).
+        canvas.setFillColor(colors.HexColor("#1A2A53"))
         canvas.setFont(bold_font, 18)
-        canvas.drawString(58 * mm, page_h - 43 * mm, document_title)
-        canvas.setFont(normal_font, 9)
-        canvas.drawString(58 * mm, page_h - 49 * mm, document_subtitle)
+        canvas.drawRightString(page_w - 14 * mm, page_h - 24 * mm, document_title)
+        canvas.setFillColor(colors.HexColor("#6B7EA8"))
+        canvas.setFont(normal_font, 9.5)
+        canvas.drawRightString(page_w - 14 * mm, page_h - 30 * mm, document_subtitle)
+
+        # Brand accent rule under the header.
+        canvas.setStrokeColor(colors.HexColor("#2A4587"))
+        canvas.setLineWidth(1.4)
+        canvas.line(14 * mm, page_h - 44 * mm, page_w - 14 * mm, page_h - 44 * mm)
 
         canvas.setFillColor(colors.HexColor("#6B7EA8"))
         canvas.setFont(normal_font, 8)

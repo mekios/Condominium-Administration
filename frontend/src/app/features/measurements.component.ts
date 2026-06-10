@@ -10,6 +10,7 @@ import { MatInputModule } from '@angular/material/input';
 import { API_BASE } from '../core/api.constants';
 import { AdminModeService } from '../core/admin-mode.service';
 import { AppDataService, Me } from '../core/app-data.service';
+import { DialogService } from '../core/dialog/dialog.service';
 
 type MonthItem = {
   measurement_date: string;
@@ -51,177 +52,89 @@ type EntryFormResponse = {
   template: `
     <section class="panel">
       <div class="panel-head">
-        <h2>Μετρήσεις ανά μήνα</h2>
-        <p>Ιστορικό μηνών και γρήγορη καταχώριση νέων μετρήσεων.</p>
+        <div>
+          <h2>Μετρήσεις</h2>
+          <p>Καταχώριση και ιστορικό μετρήσεων θέρμανσης &amp; ζεστού νερού.</p>
+        </div>
+        <button
+          *ngIf="canWrite && !showEntryPanel"
+          class="btn btn-primary btn-cta"
+          (click)="openEntryPanel()"
+        >
+          + Νέα καταχώριση
+        </button>
       </div>
 
       <p class="hint" *ngIf="loading">Φόρτωση δεδομένων...</p>
       <p class="hint error" *ngIf="loadError">{{ loadError }}</p>
-      <p class="hint" *ngIf="!loading && !loadError && canWrite === false">
+      <p class="hint app-warning" *ngIf="!loading && !loadError && canWrite === false">
         Λειτουργία μόνο ανάγνωσης. Για καταχώριση μετρήσεων ενεργοποιήστε τη λειτουργία διαχειριστή.
       </p>
 
+      <p class="banner-msg" *ngIf="message">{{ message }}</p>
+
       <div *ngIf="!loadError" class="stack">
-        <section class="subpanel">
-          <h3>Λίστα ημερομηνιών</h3>
-          <div class="table-wrap">
-            <table>
-              <thead>
-                <tr>
-                  <th>Ημερομηνία μέτρησης</th>
-                  <th>Θέρμανση</th>
-                  <th>Ζεστό νερό</th>
-                  <th>Σύνολο διαμερισμάτων</th>
-                  <th></th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr *ngFor="let item of monthItems">
-                  <td>{{ item.measurement_date | date:'d MMMM yyyy' }}</td>
-                  <td>{{ item.heating_entries }}</td>
-                  <td>{{ item.heated_water_entries }}</td>
-                  <td>{{ item.apartments_total }}</td>
-                  <td class="row-actions inline-action-group">
-                    <button class="btn btn-secondary" (click)="toggleDate(item.measurement_date)">
-                      {{ expandedDate === item.measurement_date ? 'Απόκρυψη' : 'Προβολή' }}
-                    </button>
-                    <button
-                      class="btn btn-danger btn-danger-icon"
-                      *ngIf="canWrite"
-                      aria-label="Διαγραφή"
-                      (click)="deleteMeasurementsByDate(item.measurement_date)"
-                      [disabled]="deletingDate === item.measurement_date"
-                    >
-                      <svg viewBox="0 0 24 24" aria-hidden="true">
-                        <path d="M3 6h18 M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6 M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2 M10 11v6 M14 11v6" />
-                      </svg>
-                    </button>
-                  </td>
-                </tr>
-              </tbody>
-            </table>
+        <!-- New entry (collapsible, hidden by default) -->
+        <section class="subpanel entry-panel" *ngIf="showEntryPanel">
+          <div class="subpanel-head">
+            <div class="subpanel-title">
+              <h3>Νέα καταχώριση μετρήσεων</h3>
+              <p class="muted">Επίλεξε ημερομηνία και συμπλήρωσε τις τρέχουσες ενδείξεις ανά διαμέρισμα.</p>
+            </div>
+            <button class="icon-close" aria-label="Κλείσιμο" (click)="closeEntryPanel()">✕</button>
           </div>
 
-          <div *ngIf="expandedDate" class="details">
-            <div class="details-head">
-              <h4>Μετρήσεις ημερομηνίας {{ expandedDate | date:'d MMMM yyyy' }}</h4>
-              <div class="details-actions" *ngIf="canWrite && expandedRows.length">
-                <button
-                  *ngIf="!editingDetail && !detailLocked"
-                  class="btn btn-secondary"
-                  (click)="startEditDetail()"
-                >
-                  Επεξεργασία
-                </button>
-                <ng-container *ngIf="editingDetail">
-                  <button class="btn btn-primary" (click)="saveEditDetail()" [disabled]="savingDetail">
-                    {{ savingDetail ? 'Αποθήκευση...' : 'Αποθήκευση' }}
-                  </button>
-                  <button class="btn btn-secondary" (click)="cancelEditDetail()" [disabled]="savingDetail">
-                    Ακύρωση
-                  </button>
-                </ng-container>
-              </div>
-            </div>
-            <p class="hint" *ngIf="detailLocked">
-              Οι μετρήσεις αυτού του μήνα έχουν χρησιμοποιηθεί σε κατανομή εξόδων (υπάρχουν λογαριασμοί) και δεν είναι επεξεργάσιμες. Ανακαλέστε πρώτα τους λογαριασμούς του μήνα.
-            </p>
-            <p class="hint" *ngIf="loadingDetails">Φόρτωση αναλυτικών μετρήσεων...</p>
-            <div class="table-wrap" *ngIf="expandedRows.length">
-              <table>
-                <thead>
-                  <tr>
-                    <th>Διαμέρισμα</th>
-                    <th>Προηγ. Θέρμανση</th>
-                    <th>Τρέχ. Θέρμανση</th>
-                    <th>Μονάδες Θέρμανσης</th>
-                    <th>Προηγ. Ζεστό νερό</th>
-                    <th>Τρέχ. Ζεστό νερό</th>
-                    <th>Μονάδες Ζ. Νερού</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  <tr *ngFor="let row of expandedRows">
-                    <td>{{ row.apartment_label }}</td>
-                    <td>{{ formatOneDecimal(row.previous_heating_reading) }}</td>
-                    <td *ngIf="!editingDetail">{{ formatOneDecimal(row.heating_current_reading) }}</td>
-                    <td *ngIf="editingDetail">
-                      <input
-                        type="number"
-                        step="0.1"
-                        [ngModel]="editHeatingByApt[row.apartment_id]"
-                        (ngModelChange)="editHeatingByApt[row.apartment_id] = $event"
-                      />
-                    </td>
-                    <td *ngIf="!editingDetail">{{ calculateDiff(row.heating_current_reading, row.previous_heating_reading) }}</td>
-                    <td *ngIf="editingDetail">{{ calculateDiff(editHeatingByApt[row.apartment_id], row.previous_heating_reading) }}</td>
-                    <td>{{ formatOneDecimal(row.previous_heated_water_reading) }}</td>
-                    <td *ngIf="!editingDetail">{{ formatOneDecimal(row.heated_water_current_reading) }}</td>
-                    <td *ngIf="editingDetail">
-                      <input
-                        type="number"
-                        step="0.1"
-                        [ngModel]="editWaterByApt[row.apartment_id]"
-                        (ngModelChange)="editWaterByApt[row.apartment_id] = $event"
-                      />
-                    </td>
-                    <td *ngIf="!editingDetail">{{ calculateDiff(row.heated_water_current_reading, row.previous_heated_water_reading) }}</td>
-                    <td *ngIf="editingDetail">{{ calculateDiff(editWaterByApt[row.apartment_id], row.previous_heated_water_reading) }}</td>
-                  </tr>
-                </tbody>
-              </table>
-            </div>
-          </div>
-        </section>
+          <mat-form-field class="date-field">
+            <mat-label>Ημερομηνία μέτρησης</mat-label>
+            <input matInput [matDatepicker]="entryDatePicker" [value]="toDate(entryDate)" (click)="entryDatePicker.open()" (dateChange)="onEntryDatePicked($event.value)" />
+            <mat-datepicker-toggle matIconSuffix [for]="entryDatePicker"></mat-datepicker-toggle>
+            <mat-datepicker #entryDatePicker></mat-datepicker>
+          </mat-form-field>
 
-        <section class="subpanel" *ngIf="canWrite !== false">
-          <h3>Νέα καταχώριση ημερομηνίας</h3>
-          <div class="form-grid">
-            <mat-form-field>
-              <mat-label>Ημερομηνία μέτρησης</mat-label>
-              <input matInput [matDatepicker]="entryDatePicker" [value]="toDate(entryDate)" (click)="entryDatePicker.open()" (dateChange)="onEntryDatePicked($event.value)" />
-              <mat-datepicker-toggle matIconSuffix [for]="entryDatePicker"></mat-datepicker-toggle>
-              <mat-datepicker #entryDatePicker></mat-datepicker>
-            </mat-form-field>
-          </div>
           <p class="hint" *ngIf="loadingEntryForm">Προετοιμασία φόρμας ημερομηνίας...</p>
 
           <div class="table-wrap" *ngIf="entryRows.length">
             <table>
               <thead>
                 <tr>
-                  <th>Διαμέρισμα</th>
-                  <th>Προηγ. Θέρμανση</th>
-                  <th>Τρέχ. Θέρμανση</th>
-                  <th>Μονάδες Θέρμανσης</th>
-                  <th>Προηγ. Ζεστό νερό</th>
-                  <th>Τρέχ. Ζεστό νερό</th>
-                  <th>Μονάδες Ζ. Νερού</th>
+                  <th rowspan="2" class="apt-col">Διαμέρισμα</th>
+                  <th colspan="3" class="group-h">Θέρμανση</th>
+                  <th colspan="3" class="group-w">Ζεστό νερό</th>
+                </tr>
+                <tr>
+                  <th>Προηγ.</th>
+                  <th>Τρέχ.</th>
+                  <th>Μονάδες</th>
+                  <th>Προηγ.</th>
+                  <th>Τρέχ.</th>
+                  <th>Μονάδες</th>
                 </tr>
               </thead>
               <tbody>
                 <tr *ngFor="let row of entryRows">
-                  <td>{{ row.apartment_label }}</td>
-                  <td>{{ formatOneDecimal(row.previous_heating_reading) }}</td>
+                  <td class="apt-col">{{ row.apartment_label }}</td>
+                  <td class="muted">{{ formatOneDecimal(row.previous_heating_reading) }}</td>
                   <td>
                     <input
                       type="number"
                       step="0.1"
+                      placeholder="—"
                       [ngModel]="heatingCurrentByApt[row.apartment_id]"
                       (ngModelChange)="setHeatingCurrent(row.apartment_id, $event)"
                     />
                   </td>
-                  <td>{{ calculateDiff(heatingCurrentByApt[row.apartment_id], row.previous_heating_reading) }}</td>
-                  <td>{{ formatOneDecimal(row.previous_heated_water_reading) }}</td>
+                  <td class="units">{{ calculateDiff(heatingCurrentByApt[row.apartment_id], row.previous_heating_reading) }}</td>
+                  <td class="muted">{{ formatOneDecimal(row.previous_heated_water_reading) }}</td>
                   <td>
                     <input
                       type="number"
                       step="0.1"
+                      placeholder="—"
                       [ngModel]="heatedWaterCurrentByApt[row.apartment_id]"
                       (ngModelChange)="setHeatedWaterCurrent(row.apartment_id, $event)"
                     />
                   </td>
-                  <td>{{ calculateDiff(heatedWaterCurrentByApt[row.apartment_id], row.previous_heated_water_reading) }}</td>
+                  <td class="units">{{ calculateDiff(heatedWaterCurrentByApt[row.apartment_id], row.previous_heated_water_reading) }}</td>
                 </tr>
               </tbody>
             </table>
@@ -229,13 +142,149 @@ type EntryFormResponse = {
 
           <div class="actions">
             <button class="btn btn-primary" (click)="saveMonthlyMeasurements()" [disabled]="saving">
-              {{ saving ? 'Αποθήκευση...' : 'Αποθήκευση μετρήσεων ημερομηνίας' }}
+              {{ saving ? 'Αποθήκευση...' : 'Αποθήκευση μετρήσεων' }}
             </button>
+            <button class="btn btn-secondary" (click)="closeEntryPanel()" [disabled]="saving">Ακύρωση</button>
+          </div>
+        </section>
+
+        <!-- History -->
+        <section class="subpanel">
+          <h3>Ιστορικό μετρήσεων</h3>
+
+          <p class="empty" *ngIf="!loading && !monthItems.length">
+            Δεν υπάρχουν καταχωρημένες μετρήσεις ακόμη.
+          </p>
+
+          <div class="table-wrap" *ngIf="monthItems.length">
+            <table class="history-table">
+              <thead>
+                <tr>
+                  <th>Ημερομηνία</th>
+                  <th>Θέρμανση</th>
+                  <th>Ζεστό νερό</th>
+                  <th>Διαμερίσματα</th>
+                  <th>Κατάσταση</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody>
+                <ng-container *ngFor="let item of monthItems">
+                  <tr [class.row-open]="expandedDate === item.measurement_date">
+                    <td class="date-cell">{{ item.measurement_date | date:'d MMMM yyyy' }}</td>
+                    <td>{{ item.heating_entries }}</td>
+                    <td>{{ item.heated_water_entries }}</td>
+                    <td>{{ item.apartments_total }}</td>
+                    <td>
+                      <span class="badge" [class.badge-locked]="item.locked" [class.badge-open]="!item.locked">
+                        {{ item.locked ? 'Σε λογαριασμούς' : 'Επεξεργάσιμο' }}
+                      </span>
+                    </td>
+                    <td class="row-actions inline-action-group">
+                      <button class="btn btn-secondary" (click)="toggleDate(item.measurement_date)">
+                        {{ expandedDate === item.measurement_date ? 'Απόκρυψη' : 'Προβολή' }}
+                      </button>
+                      <button
+                        class="btn btn-danger btn-danger-icon"
+                        *ngIf="canWrite"
+                        aria-label="Διαγραφή"
+                        title="Διαγραφή μετρήσεων ημερομηνίας"
+                        (click)="deleteMeasurementsByDate(item.measurement_date)"
+                        [disabled]="deletingDate === item.measurement_date"
+                      >
+                        <svg viewBox="0 0 24 24" aria-hidden="true">
+                          <path d="M3 6h18 M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6 M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2 M10 11v6 M14 11v6" />
+                        </svg>
+                      </button>
+                    </td>
+                  </tr>
+                  <tr *ngIf="expandedDate === item.measurement_date" class="detail-row">
+                    <td colspan="6">
+                      <div class="details">
+                        <div class="details-head">
+                          <h4>
+                            Ανάλυση μετρήσεων
+                            <span class="badge badge-locked" *ngIf="detailLocked">Σε λογαριασμούς</span>
+                          </h4>
+                          <div class="details-actions" *ngIf="canWrite && expandedRows.length">
+                            <button
+                              *ngIf="!editingDetail && !detailLocked"
+                              class="btn btn-secondary"
+                              (click)="startEditDetail()"
+                            >
+                              Επεξεργασία
+                            </button>
+                            <ng-container *ngIf="editingDetail">
+                              <button class="btn btn-primary" (click)="saveEditDetail()" [disabled]="savingDetail">
+                                {{ savingDetail ? 'Αποθήκευση...' : 'Αποθήκευση' }}
+                              </button>
+                              <button class="btn btn-secondary" (click)="cancelEditDetail()" [disabled]="savingDetail">
+                                Ακύρωση
+                              </button>
+                            </ng-container>
+                          </div>
+                        </div>
+                        <p class="hint app-warning" *ngIf="detailLocked">
+                          Οι μετρήσεις αυτού του μήνα έχουν χρησιμοποιηθεί σε κατανομή εξόδων (υπάρχουν λογαριασμοί) και δεν είναι επεξεργάσιμες. Ανακαλέστε πρώτα τους λογαριασμούς του μήνα.
+                        </p>
+                        <p class="hint" *ngIf="loadingDetails">Φόρτωση αναλυτικών μετρήσεων...</p>
+                        <div class="table-wrap" *ngIf="expandedRows.length">
+                          <table>
+                            <thead>
+                              <tr>
+                                <th rowspan="2" class="apt-col">Διαμέρισμα</th>
+                                <th colspan="3" class="group-h">Θέρμανση</th>
+                                <th colspan="3" class="group-w">Ζεστό νερό</th>
+                              </tr>
+                              <tr>
+                                <th>Προηγ.</th>
+                                <th>Τρέχ.</th>
+                                <th>Μονάδες</th>
+                                <th>Προηγ.</th>
+                                <th>Τρέχ.</th>
+                                <th>Μονάδες</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              <tr *ngFor="let row of expandedRows">
+                                <td class="apt-col">{{ row.apartment_label }}</td>
+                                <td class="muted">{{ formatOneDecimal(row.previous_heating_reading) }}</td>
+                                <td *ngIf="!editingDetail">{{ formatOneDecimal(row.heating_current_reading) }}</td>
+                                <td *ngIf="editingDetail">
+                                  <input
+                                    type="number"
+                                    step="0.1"
+                                    [ngModel]="editHeatingByApt[row.apartment_id]"
+                                    (ngModelChange)="editHeatingByApt[row.apartment_id] = $event"
+                                  />
+                                </td>
+                                <td class="units" *ngIf="!editingDetail">{{ calculateDiff(row.heating_current_reading, row.previous_heating_reading) }}</td>
+                                <td class="units" *ngIf="editingDetail">{{ calculateDiff(editHeatingByApt[row.apartment_id], row.previous_heating_reading) }}</td>
+                                <td class="muted">{{ formatOneDecimal(row.previous_heated_water_reading) }}</td>
+                                <td *ngIf="!editingDetail">{{ formatOneDecimal(row.heated_water_current_reading) }}</td>
+                                <td *ngIf="editingDetail">
+                                  <input
+                                    type="number"
+                                    step="0.1"
+                                    [ngModel]="editWaterByApt[row.apartment_id]"
+                                    (ngModelChange)="editWaterByApt[row.apartment_id] = $event"
+                                  />
+                                </td>
+                                <td class="units" *ngIf="!editingDetail">{{ calculateDiff(row.heated_water_current_reading, row.previous_heated_water_reading) }}</td>
+                                <td class="units" *ngIf="editingDetail">{{ calculateDiff(editWaterByApt[row.apartment_id], row.previous_heated_water_reading) }}</td>
+                              </tr>
+                            </tbody>
+                          </table>
+                        </div>
+                      </div>
+                    </td>
+                  </tr>
+                </ng-container>
+              </tbody>
+            </table>
           </div>
         </section>
       </div>
-
-      <p class="hint" *ngIf="message">{{ message }}</p>
     </section>
   `,
   styles: `
@@ -244,6 +293,13 @@ type EntryFormResponse = {
       background: #101a33;
       border-radius: 12px;
       padding: 1rem;
+    }
+    .panel-head {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 0.8rem;
+      flex-wrap: wrap;
     }
     .panel-head h2 {
       margin: 0;
@@ -258,6 +314,20 @@ type EntryFormResponse = {
     .hint.error {
       color: #ff9fa5;
     }
+    .btn-cta {
+      flex-shrink: 0;
+      font-size: 0.95rem;
+      padding: 0.6rem 1.1rem;
+    }
+    .banner-msg {
+      margin: 0 0 0.8rem;
+      border: 1px solid #2f6a4a;
+      background: linear-gradient(180deg, rgba(24, 96, 60, 0.28), rgba(14, 70, 44, 0.22));
+      color: #b5f0cf;
+      border-radius: 10px;
+      padding: 0.55rem 0.7rem;
+      font-size: 0.88rem;
+    }
     .stack {
       display: grid;
       gap: 1rem;
@@ -265,16 +335,49 @@ type EntryFormResponse = {
     .subpanel {
       border: 1px solid #27385f;
       border-radius: 12px;
-      padding: 0.8rem;
+      padding: 0.9rem;
       background: #0f1933;
+    }
+    .entry-panel {
+      border-color: #3a4f86;
+      box-shadow: inset 0 0 0 1px rgba(99, 121, 255, 0.12);
+    }
+    .subpanel-head {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 0.6rem;
+      margin-bottom: 0.6rem;
+    }
+    .subpanel-title .muted,
+    p.muted {
+      margin: 0.2rem 0 0;
+      color: #8aa0d0;
+      font-size: 0.82rem;
+    }
+    .icon-close {
+      border: 1px solid #334a7c;
+      background: #122043;
+      color: #dce8ff;
+      border-radius: 8px;
+      width: 2rem;
+      height: 2rem;
+      cursor: pointer;
+      flex-shrink: 0;
     }
     h3 {
       margin: 0 0 0.6rem;
       font-size: 0.98rem;
     }
     h4 {
-      margin: 0.7rem 0 0.5rem;
+      margin: 0 0 0.2rem;
       font-size: 0.92rem;
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+    .details {
+      padding: 0.2rem 0 0.3rem;
     }
     .details-head {
       display: flex;
@@ -282,29 +385,60 @@ type EntryFormResponse = {
       justify-content: space-between;
       gap: 0.6rem;
       flex-wrap: wrap;
+      margin-bottom: 0.5rem;
     }
     .details-actions {
       display: flex;
       gap: 0.4rem;
     }
-    .form-grid {
-      display: grid;
-      grid-template-columns: repeat(3, minmax(0, 1fr));
-      gap: 0.7rem;
+    .date-field {
+      max-width: 260px;
       margin-bottom: 0.5rem;
     }
-    label {
-      display: grid;
-      gap: 0.3rem;
-      color: #b5c9f5;
-      font-size: 0.86rem;
+    .empty {
+      color: #8aa0d0;
+      font-size: 0.9rem;
+      padding: 0.6rem 0.2rem;
+    }
+    .muted {
+      color: #8094c0;
+    }
+    .units {
+      font-variant-numeric: tabular-nums;
+      color: #cfe0ff;
+      font-weight: 600;
+    }
+    .badge {
+      display: inline-block;
+      border-radius: 999px;
+      padding: 0.18rem 0.6rem;
+      font-size: 0.74rem;
+      font-weight: 600;
+      white-space: nowrap;
+    }
+    .badge-open {
+      color: #b6f0d0;
+      border: 1px solid #2f6a4a;
+      background: rgba(33, 110, 70, 0.25);
+    }
+    .badge-locked {
+      color: #ffd38a;
+      border: 1px solid #8b6a37;
+      background: rgba(120, 88, 38, 0.28);
     }
     input:not([matInput]) {
       border: 1px solid #31416c;
       border-radius: 10px;
       background: #0d1430;
       color: #fff;
-      padding: 0.55rem;
+      padding: 0.5rem;
+      width: 100%;
+      max-width: 120px;
+    }
+    input:not([matInput]):focus {
+      outline: none;
+      border-color: #6d8dce;
+      box-shadow: 0 0 0 2px rgba(109, 141, 206, 0.22);
     }
     .table-wrap {
       overflow: auto;
@@ -315,7 +449,10 @@ type EntryFormResponse = {
     table {
       width: 100%;
       border-collapse: collapse;
-      min-width: 1024px;
+      min-width: 760px;
+    }
+    .history-table {
+      min-width: 640px;
     }
     th,
     td {
@@ -330,14 +467,51 @@ type EntryFormResponse = {
       background: #111d3d;
       white-space: nowrap;
     }
+    th.group-h,
+    th.group-w {
+      text-align: center;
+      border-left: 1px solid #223153;
+    }
+    th.group-h {
+      color: #ffb38a;
+    }
+    th.group-w {
+      color: #8ac6ff;
+    }
+    .apt-col {
+      position: sticky;
+      left: 0;
+      background: #0d1530;
+      z-index: 1;
+    }
+    th.apt-col {
+      background: #111d3d;
+    }
+    .date-cell {
+      white-space: nowrap;
+      font-weight: 600;
+      color: #e2ecff;
+    }
     tbody tr {
       transition: background-color 0.15s ease;
     }
-    tbody tr:hover {
-      background: rgba(92, 120, 196, 0.22);
+    tbody tr:hover:not(.detail-row) {
+      background: rgba(92, 120, 196, 0.18);
+    }
+    tr.row-open > td {
+      background: rgba(92, 120, 196, 0.16);
+    }
+    tr.detail-row > td {
+      background: #0c1429;
+      padding: 0.4rem 0.7rem 0.8rem;
+    }
+    tr.detail-row:hover > td {
+      background: #0c1429;
     }
     .actions {
-      margin-top: 0.7rem;
+      margin-top: 0.8rem;
+      display: flex;
+      gap: 0.5rem;
     }
     .btn {
       border: 0;
@@ -360,11 +534,8 @@ type EntryFormResponse = {
       vertical-align: middle;
     }
     @media (max-width: 900px) {
-      .form-grid {
-        grid-template-columns: 1fr;
-      }
       table {
-        min-width: 780px;
+        min-width: 640px;
       }
     }
   `,
@@ -382,6 +553,7 @@ export class MeasurementsComponent implements OnInit {
   editWaterByApt: Record<number, string> = {};
   entryRows: EntryRow[] = [];
   entryDate = '';
+  showEntryPanel = false;
   loading = true;
   loadingDetails = false;
   loadingEntryForm = false;
@@ -396,6 +568,7 @@ export class MeasurementsComponent implements OnInit {
     private readonly data: AppDataService,
     private readonly http: HttpClient,
     private readonly adminMode: AdminModeService,
+    private readonly dialog: DialogService,
   ) {}
 
   ngOnInit(): void {
@@ -416,8 +589,8 @@ export class MeasurementsComponent implements OnInit {
 
   private refreshCanWrite(): void {
     this.canWrite = this.adminMode.canManage(this.me);
-    if (this.canWrite && this.entryDate && this.entryRows.length === 0) {
-      this.loadEntryForm(this.entryDate);
+    if (!this.canWrite) {
+      this.closeEntryPanel();
     }
   }
 
@@ -430,9 +603,6 @@ export class MeasurementsComponent implements OnInit {
           this.monthItems = response.items;
           if (!this.entryDate) {
             this.entryDate = response.suggested_next_date;
-            if (this.adminMode.canManage(this.me)) {
-              this.loadEntryForm(this.entryDate);
-            }
           }
         },
         error: (error) => {
@@ -440,6 +610,22 @@ export class MeasurementsComponent implements OnInit {
           this.loadError = `Αποτυχία φόρτωσης μηνών μετρήσεων${status}.`;
         },
       });
+  }
+
+  openEntryPanel(): void {
+    if (!this.canWrite) return;
+    this.showEntryPanel = true;
+    this.message = '';
+    if (this.entryDate) {
+      this.loadEntryForm(this.entryDate);
+    }
+  }
+
+  closeEntryPanel(): void {
+    this.showEntryPanel = false;
+    this.entryRows = [];
+    this.heatingCurrentByApt = {};
+    this.heatedWaterCurrentByApt = {};
   }
 
   toggleDate(measurementDate: string): void {
@@ -597,29 +783,36 @@ export class MeasurementsComponent implements OnInit {
 
   deleteMeasurementsByDate(measurementDate: string): void {
     if (!this.canWrite) return;
-    const confirmed = window.confirm('Να διαγραφούν όλες οι μετρήσεις της ημερομηνίας;');
-    if (!confirmed) return;
+    this.dialog
+      .confirm({
+        title: 'Διαγραφή μετρήσεων',
+        message: 'Να διαγραφούν όλες οι μετρήσεις της ημερομηνίας;',
+        confirmLabel: 'Διαγραφή',
+      })
+      .subscribe((confirmed) => {
+        if (!confirmed) return;
 
-    this.deletingDate = measurementDate;
-    this.message = '';
-    this.http
-      .delete<{ detail: string; warnings?: string[] }>(
-        `${API_BASE}/api/accounting/heating-inputs/by-date/?measurement_date=${measurementDate}`,
-      )
-      .pipe(finalize(() => (this.deletingDate = null)))
-      .subscribe({
-        next: (response) => {
-          const warnings = response.warnings?.length ? ` ${response.warnings.join(' ')}` : '';
-          this.message = `${response.detail}${warnings}`;
-          if (this.expandedDate === measurementDate) {
-            this.expandedDate = null;
-            this.expandedRows = [];
-          }
-          this.loadMonths();
-        },
-        error: (error) => {
-          this.message = error?.error?.detail || 'Αποτυχία διαγραφής μετρήσεων.';
-        },
+        this.deletingDate = measurementDate;
+        this.message = '';
+        this.http
+          .delete<{ detail: string; warnings?: string[] }>(
+            `${API_BASE}/api/accounting/heating-inputs/by-date/?measurement_date=${measurementDate}`,
+          )
+          .pipe(finalize(() => (this.deletingDate = null)))
+          .subscribe({
+            next: (response) => {
+              const warnings = response.warnings?.length ? ` ${response.warnings.join(' ')}` : '';
+              this.message = `${response.detail}${warnings}`;
+              if (this.expandedDate === measurementDate) {
+                this.expandedDate = null;
+                this.expandedRows = [];
+              }
+              this.loadMonths();
+            },
+            error: (error) => {
+              this.message = error?.error?.detail || 'Αποτυχία διαγραφής μετρήσεων.';
+            },
+          });
       });
   }
 
@@ -653,10 +846,12 @@ export class MeasurementsComponent implements OnInit {
       .subscribe({
         next: (response) => {
           this.message = response.detail;
-          this.expandedDate = this.entryDate;
-          this.loadDateDetail(this.entryDate);
+          const savedDate = this.entryDate;
+          this.closeEntryPanel();
           this.loadMonths();
-          this.loadEntryForm(this.entryDate);
+          this.expandedDate = savedDate;
+          this.resetDetailEditState();
+          this.loadDateDetail(savedDate);
         },
         error: (error) => {
           this.message = error?.error?.detail || 'Αποτυχία αποθήκευσης μετρήσεων.';

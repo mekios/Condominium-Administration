@@ -1,7 +1,7 @@
 import { Component, OnInit } from '@angular/core';
 import { NgFor, NgIf } from '@angular/common';
 import { FormsModule } from '@angular/forms';
-import { MatDatepicker, MatDatepickerModule } from '@angular/material/datepicker';
+import { MatDatepickerModule } from '@angular/material/datepicker';
 import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatInputModule } from '@angular/material/input';
 
@@ -10,7 +10,9 @@ import { HttpClient } from '@angular/common/http';
 import { API_BASE } from '../core/api.constants';
 import { AdminModeService } from '../core/admin-mode.service';
 import { AppDataService, Invoice, Me } from '../core/app-data.service';
+import { DialogService } from '../core/dialog/dialog.service';
 import { EuroPipe } from '../core/euro.pipe';
+import { MonthPickerComponent } from '../core/month-picker/month-picker.component';
 
 type PaymentRecord = {
   id: number;
@@ -29,7 +31,7 @@ type PaymentRecord = {
 @Component({
   standalone: true,
   selector: 'app-payments',
-  imports: [NgFor, NgIf, FormsModule, EuroPipe, MatDatepickerModule, MatFormFieldModule, MatInputModule],
+  imports: [NgFor, NgIf, FormsModule, EuroPipe, MonthPickerComponent, MatDatepickerModule, MatFormFieldModule, MatInputModule],
   template: `
     <section class="panel">
       <div class="panel-head">
@@ -38,13 +40,7 @@ type PaymentRecord = {
       </div>
 
       <div class="toolbar">
-        <mat-form-field>
-          <mat-label>Μήνας</mat-label>
-          <input matInput [matDatepicker]="paymentsMonthPicker" [value]="monthToDate(month)" (click)="paymentsMonthPicker.open()" readonly />
-          <mat-datepicker-toggle matIconSuffix [for]="paymentsMonthPicker"></mat-datepicker-toggle>
-          <mat-datepicker #paymentsMonthPicker startView="multi-year" (monthSelected)="selectMonth($event, paymentsMonthPicker)"></mat-datepicker>
-        </mat-form-field>
-        <button class="btn btn-secondary" (click)="loadAll()">Ανανέωση</button>
+        <app-month-picker [value]="month" (valueChange)="onMonthSelected($event)" />
       </div>
 
       <div class="form-grid" *ngIf="writeEnabled">
@@ -125,7 +121,10 @@ type PaymentRecord = {
     .panel { border: 1px solid #243152; background: #101a33; border-radius: 12px; padding: 1rem; }
     .panel-head h2 { margin: 0; font-size: 1.05rem; }
     .panel-head p, .hint { margin: 0.35rem 0 0.8rem; color: #93a8da; font-size: 0.9rem; }
-    .toolbar { display: flex; gap: 0.6rem; margin-bottom: 0.8rem; }
+    .toolbar {
+      margin-bottom: 0.85rem;
+      max-width: 22rem;
+    }
     .form-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0.7rem; }
     .full { grid-column: 1 / -1; }
     label { display: grid; gap: 0.3rem; color: #b5c9f5; font-size: 0.86rem; }
@@ -161,6 +160,7 @@ export class PaymentsComponent implements OnInit {
     private readonly http: HttpClient,
     private readonly data: AppDataService,
     private readonly adminMode: AdminModeService,
+    private readonly dialog: DialogService,
   ) {}
 
   ngOnInit(): void {
@@ -221,20 +221,25 @@ export class PaymentsComponent implements OnInit {
   }
 
   deletePayment(row: PaymentRecord): void {
-    const confirmed = window.confirm(
-      `Να διαγραφεί η πληρωμή ${row.amount} € (${row.payment_date}) για ${row.apartment_label};`,
-    );
-    if (!confirmed) return;
+    this.dialog
+      .confirm({
+        title: 'Διαγραφή πληρωμής',
+        message: `Να διαγραφεί η πληρωμή ${row.amount} € (${row.payment_date}) για ${row.apartment_label};`,
+        confirmLabel: 'Διαγραφή',
+      })
+      .subscribe((confirmed) => {
+        if (!confirmed) return;
 
-    this.http.delete(`${API_BASE}/api/accounting/payments/${row.id}/`).subscribe({
-      next: () => {
-        this.message = 'Η πληρωμή διαγράφηκε.';
-        this.loadAll();
-      },
-      error: (error) => {
-        this.message = error?.error?.detail || 'Αποτυχία διαγραφής πληρωμής.';
-      },
-    });
+        this.http.delete(`${API_BASE}/api/accounting/payments/${row.id}/`).subscribe({
+          next: () => {
+            this.message = 'Η πληρωμή διαγράφηκε.';
+            this.loadAll();
+          },
+          error: (error) => {
+            this.message = error?.error?.detail || 'Αποτυχία διαγραφής πληρωμής.';
+          },
+        });
+      });
   }
 
   paymentMethodLabel(value: string): string {
@@ -244,16 +249,9 @@ export class PaymentsComponent implements OnInit {
     return 'Άλλο';
   }
 
-  monthToDate(month: string): Date | null {
-    if (!month) return null;
-    const [y, m] = month.split('-').map(Number);
-    if (!y || !m) return null;
-    return new Date(y, m - 1, 1);
-  }
-
-  selectMonth(value: Date, picker: MatDatepicker<Date>): void {
-    this.month = `${value.getFullYear()}-${String(value.getMonth() + 1).padStart(2, '0')}`;
-    picker.close();
+  onMonthSelected(month: string): void {
+    if (!month) return;
+    this.month = month;
     this.loadAll();
   }
 

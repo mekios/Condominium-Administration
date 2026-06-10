@@ -29,17 +29,7 @@ import { AuthService } from '../core/auth.service';
           </svg>
         </button>
         <div class="brand">
-          <div class="brand-mark" aria-hidden="true">
-            <span class="brand-ring">
-              <svg viewBox="0 0 24 24" class="brand-icon">
-                <path d="M4 21V6l8-3 8 3v15M9 21v-4h6v4M8 9h0M12 9h0M16 9h0M8 13h0M12 13h0M16 13h0" />
-              </svg>
-            </span>
-          </div>
-          <div class="brand-meta">
-            <h2>ΕΦΑΡΜΟΓΗ ΔΙΑΧΕΙΡΙΣΗΣ</h2>
-            <p>ΜΕΤΑΜΟΡΦΩΣΕΩΣ 5</p>
-          </div>
+          <img src="logo.png" alt="Μεταμόρφωσεως 5 — Χαλάνδρι, Αττική" class="brand-logo" />
         </div>
         <nav>
           <a routerLink="/app/invoices" routerLinkActive="active" (click)="closeMobileMenu()">
@@ -169,7 +159,6 @@ import { AuthService } from '../core/auth.service';
       position: absolute;
       left: 0.32rem;
     }
-    .sidebar.collapsed .brand-meta,
     .sidebar.collapsed nav a span,
     .sidebar.collapsed .profile-meta {
       display: none;
@@ -193,61 +182,24 @@ import { AuthService } from '../core/auth.service';
       margin: 0 0 1rem;
       display: flex;
       align-items: center;
+      justify-content: center;
       gap: 0.6rem;
       border-radius: 14px;
-      padding: 0.62rem 0.68rem;
-      background: linear-gradient(135deg, rgba(71, 103, 177, 0.18), rgba(117, 77, 163, 0.16));
-      backdrop-filter: blur(8px);
+      padding: 0.65rem 0.75rem;
+      background: rgba(245, 248, 255, 0.92);
+      border: 1px solid rgba(255, 255, 255, 0.5);
+      box-shadow: 0 8px 20px rgba(8, 12, 28, 0.28);
+      backdrop-filter: blur(6px);
     }
-    .brand-mark {
-      position: relative;
-      width: 2.35rem;
-      height: 2.35rem;
-      border-radius: 999px;
-      display: grid;
-      place-items: center;
-      flex-shrink: 0;
-    }
-    .brand-ring {
+    .brand-logo {
+      display: block;
       width: 100%;
-      height: 100%;
-      border-radius: inherit;
-      display: grid;
-      place-items: center;
-      background: linear-gradient(140deg, #6082ff, #8c61ff 58%, #5ec2ff);
-      box-shadow: 0 10px 22px rgba(88, 86, 193, 0.4);
+      height: auto;
+      max-height: 96px;
+      object-fit: contain;
     }
-    .brand-icon {
-      width: 1.2rem;
-      height: 1.2rem;
-      fill: none;
-      stroke: #f6f8ff;
-      stroke-width: 1.65;
-      stroke-linecap: round;
-      stroke-linejoin: round;
-    }
-    .brand-meta {
-      min-width: 0;
-    }
-    .brand-meta h2 {
-      margin: 0;
-      font-size: 0.72rem;
-      letter-spacing: 0.09em;
-      text-transform: uppercase;
-      line-height: 1.15;
-      color: #eff4ff;
-      font-weight: 700;
-      font-family: "Roboto Condensed", "Roboto", Arial, sans-serif;
-    }
-    .brand-meta p {
-      margin: 0.14rem 0 0;
-      color: #aabce6;
-      font-size: 0.66rem;
-      letter-spacing: 0.08em;
-      font-family: "Roboto Condensed", "Roboto", Arial, sans-serif;
-      white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
+    .sidebar.collapsed .brand {
+      display: none;
     }
     nav {
       display: grid;
