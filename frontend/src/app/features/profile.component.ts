@@ -64,7 +64,7 @@ export class ProfileComponent implements OnInit {
       next: (me) => (this.me = me),
       error: () => (this.me = null),
     });
-    this.data.getApartments().subscribe({
+    this.data.getLinkedApartments().subscribe({
       next: (apartments) => {
         this.apartments = apartments;
         this.loading = false;

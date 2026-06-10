@@ -2,6 +2,8 @@ from rest_framework import serializers
 
 from .models import (
     Apartment,
+    ApartmentUser,
+    DesignatedVoter,
     ExpenseItem,
     HeatingMeasurementInput,
     HeatedWaterMeasurementInput,
@@ -9,6 +11,8 @@ from .models import (
     InvoiceDocument,
     NotificationDispatch,
     PaymentRecord,
+    Vote,
+    VoteSession,
 )
 
 
@@ -36,6 +40,10 @@ class ApartmentHeatingFactorsSerializer(serializers.Serializer):
     heating_f_factor = serializers.DecimalField(max_digits=10, decimal_places=4)
 
 
+class DesignatedVoterAssignSerializer(serializers.Serializer):
+    voter_user_id = serializers.IntegerField()
+
+
 class HeatingMeasurementInputSerializer(serializers.ModelSerializer):
     class Meta:
         model = HeatingMeasurementInput
@@ -43,8 +51,6 @@ class HeatingMeasurementInputSerializer(serializers.ModelSerializer):
             "id",
             "apartment",
             "measurement_date",
-            "billing_period_start",
-            "billing_period_end",
             "e_factor",
             "f_factor",
             "current_reading",
@@ -76,8 +82,6 @@ class HeatedWaterMeasurementInputSerializer(serializers.ModelSerializer):
             "id",
             "apartment",
             "measurement_date",
-            "billing_period_start",
-            "billing_period_end",
             "inputs_json",
             "current_reading",
             "computed_heating_water_volume",
@@ -242,8 +246,6 @@ class HeatingBulkRowSerializer(serializers.Serializer):
 
 class HeatingBulkUpsertSerializer(serializers.Serializer):
     measurement_date = serializers.DateField()
-    billing_period_start = serializers.DateField()
-    billing_period_end = serializers.DateField()
     rows = HeatingBulkRowSerializer(many=True)
 
 
@@ -255,8 +257,6 @@ class HeatedWaterBulkRowSerializer(serializers.Serializer):
 
 class HeatedWaterBulkUpsertSerializer(serializers.Serializer):
     measurement_date = serializers.DateField()
-    billing_period_start = serializers.DateField()
-    billing_period_end = serializers.DateField()
     rows = HeatedWaterBulkRowSerializer(many=True)
 
 
@@ -268,6 +268,114 @@ class MonthlyMeasurementRowSerializer(serializers.Serializer):
 
 class MonthlyMeasurementUpsertSerializer(serializers.Serializer):
     measurement_date = serializers.DateField()
-    billing_period_start = serializers.DateField()
-    billing_period_end = serializers.DateField()
     rows = MonthlyMeasurementRowSerializer(many=True)
+
+
+class VoteSessionSerializer(serializers.ModelSerializer):
+    building_name = serializers.CharField(source="building.name", read_only=True)
+    created_by_username = serializers.CharField(source="created_by_user.username", read_only=True)
+
+    class Meta:
+        model = VoteSession
+        fields = [
+            "id",
+            "building",
+            "building_name",
+            "session_type",
+            "title",
+            "description",
+            "vote_options_json",
+            "start_at",
+            "end_at",
+            "status",
+            "created_by_user",
+            "created_by_username",
+            "created_at",
+            "updated_at",
+        ]
+        read_only_fields = ["created_by_user", "created_at", "updated_at", "building_name", "created_by_username"]
+
+    def validate(self, attrs):
+        start_at = attrs.get("start_at", getattr(self.instance, "start_at", None))
+        end_at = attrs.get("end_at", getattr(self.instance, "end_at", None))
+        if start_at and end_at and start_at >= end_at:
+            raise serializers.ValidationError("Το start_at πρέπει να είναι πριν από το end_at.")
+        options = attrs.get("vote_options_json", getattr(self.instance, "vote_options_json", []))
+        if options is None:
+            options = []
+        if not isinstance(options, list):
+            raise serializers.ValidationError("Το vote_options_json πρέπει να είναι λίστα επιλογών.")
+        normalized: list[str] = []
+        seen: set[str] = set()
+        for option in options:
+            option_text = str(option).strip()
+            if not option_text:
+                continue
+            key = option_text.lower()
+            if key in seen:
+                continue
+            seen.add(key)
+            normalized.append(option_text)
+        if len(normalized) > 12:
+            raise serializers.ValidationError("Μέγιστος αριθμός επιλογών: 12.")
+        attrs["vote_options_json"] = normalized
+        return attrs
+
+    def create(self, validated_data):
+        validated_data["created_by_user"] = self.context["request"].user
+        if "status" not in validated_data:
+            validated_data["status"] = VoteSession.Status.DRAFT
+        return super().create(validated_data)
+
+
+class VoteSerializer(serializers.ModelSerializer):
+    apartment_label = serializers.CharField(source="apartment.apartment_label", read_only=True)
+    voter_username = serializers.CharField(source="voter_user.username", read_only=True)
+
+    class Meta:
+        model = Vote
+        fields = [
+            "id",
+            "vote_session",
+            "apartment",
+            "apartment_label",
+            "voter_user",
+            "voter_username",
+            "vote_value",
+            "submitted_at",
+            "updated_at",
+        ]
+        read_only_fields = ["submitted_at", "updated_at", "apartment_label", "voter_username", "voter_user"]
+
+
+class VoteSubmitSerializer(serializers.Serializer):
+    apartment_id = serializers.IntegerField()
+    vote_value = serializers.CharField(max_length=64)
+
+    def validate(self, attrs):
+        request = self.context["request"]
+        vote_session: VoteSession = self.context["vote_session"]
+        apartment_id = attrs["apartment_id"]
+
+        apartment_user_exists = ApartmentUser.objects.filter(apartment_id=apartment_id, user=request.user).exists()
+        if not apartment_user_exists:
+            raise serializers.ValidationError("Ο χρήστης δεν είναι συνδεδεμένος με το συγκεκριμένο διαμέρισμα.")
+
+        designated = DesignatedVoter.objects.filter(apartment_id=apartment_id, voter_user=request.user).exists()
+        if not designated:
+            raise serializers.ValidationError("Μόνο ο ορισμένος ψηφοφόρος μπορεί να ψηφίσει για το διαμέρισμα.")
+
+        if vote_session.building_id != Apartment.objects.filter(id=apartment_id).values_list("building_id", flat=True).first():
+            raise serializers.ValidationError("Το διαμέρισμα δεν ανήκει στο κτίριο της ψηφοφορίας.")
+
+        vote_value = str(attrs["vote_value"]).strip()
+        if not vote_value:
+            raise serializers.ValidationError("Η επιλογή ψήφου είναι υποχρεωτική.")
+        available_options = vote_session.vote_options_json or [Vote.Value.YES, Vote.Value.NO, Vote.Value.ABSTAIN]
+        available_lookup = {str(option).strip().lower(): str(option).strip() for option in available_options if str(option).strip()}
+        selected = available_lookup.get(vote_value.lower())
+        if not selected:
+            raise serializers.ValidationError("Μη έγκυρη επιλογή ψήφου για αυτή τη συνεδρία.")
+        attrs["vote_value"] = selected
+
+        return attrs

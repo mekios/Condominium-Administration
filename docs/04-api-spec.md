@@ -40,6 +40,15 @@ Permissions:
   - Vote: only as designated voter for each apartment (one vote per session)
   - Cannot read or mutate measurements/expenses/payments for other apartments
 
+### 3.1 Apartment list scoping
+- `GET /apartments/` returns only apartments linked to the current user (`ApartmentUser` membership).
+- `GET /apartments/?all=1` returns all building apartments for `superadmin` and `administrator` only (used by management screens).
+
+### 3.2 Frontend admin mode (UI policy)
+- `superadmin`: management write controls are always visible in the UI.
+- `administrator`: management write controls (measurements, expenses, invoices, payments, voting setup) are shown only after the user toggles **Λειτουργία διαχειριστή** in the app shell.
+- Admin mode state is stored in browser `sessionStorage` and does not change backend authorization (API still checks role server-side).
+
 ## 4. Common query conventions
 - Apartment scoping:
   - List endpoints return only items accessible to the user.
@@ -86,9 +95,7 @@ Primary monthly workflow endpoints:
 4. `POST /accounting/heating-inputs/monthly-upsert/` (administrator, superadmin)
    - body (example):
      - `{
-         "month": "2026-08",
-         "billing_period_start": "2026-07-01",
-         "billing_period_end": "2026-08-01",
+         "measurement_date": "2026-08-01",
          "rows": [
            { "apartment_id": 10, "heating_current_reading": "120.5", "heated_water_current_reading": "44.0" }
          ]
@@ -100,8 +107,11 @@ Primary monthly workflow endpoints:
    - `e_factor`/`f_factor` are copied from apartment master data snapshots (not entered monthly in UI)
 
 Low-level/legacy endpoints (still available for internal/admin use):
-- `GET|POST|PATCH /accounting/heating-inputs/`
-- `GET|POST|PATCH /accounting/heated-water-inputs/`
+- `GET|POST|PATCH|DELETE /accounting/heating-inputs/` (DELETE: administrator, superadmin)
+- `GET|POST|PATCH|DELETE /accounting/heated-water-inputs/` (DELETE: administrator, superadmin)
+- `DELETE /accounting/heating-inputs/by-date/?measurement_date=YYYY-MM-DD` (administrator, superadmin)
+  - deletes all heating and heated-water rows for that measurement date across visible building apartments
+  - rejected when invoices for that calendar month have recorded payments
 - `POST /accounting/heating-inputs/bulk-upsert/`
 - `POST /accounting/heated-water-inputs/bulk-upsert/`
 
@@ -122,6 +132,7 @@ Server behavior:
        - `"affected_period_start": "2026-02-01"`
        - `"affected_period_end": "2026-03-01"`
 3. `PATCH /accounting/expenses/{expenseId}/` (administrator, superadmin)
+4. `DELETE /accounting/expenses/{expenseId}/` (administrator, superadmin)
 
 Allocation:
 - On create/update of an expense item, system recomputes allocated expenses per apartment for its accounting month.
@@ -170,6 +181,11 @@ Invoice generation/regeneration:
    - behavior:
      - sends stored/generated receipt again
      - duplicate protection: returns conflict unless `force=true`
+5. `POST /invoices/{invoiceId}/recall/` (administrator, superadmin)
+   - body: `{ "confirm": true }` (required)
+   - behavior:
+     - deletes the invoice and cascades associated payments and stored PDF documents
+     - invoice can be recreated later via `POST /invoices/generate/`
 
 ### 5.5 Accounting: payments
 1. `GET /accounting/payments/?month=YYYY-MM`
@@ -182,6 +198,10 @@ Invoice generation/regeneration:
      - records payment and updates invoice outstanding
      - generates/stores receipt PDF
      - sends receipt email and tracks dispatch status
+3. `DELETE /accounting/payments/{paymentId}/` (administrator, superadmin)
+   - behavior:
+     - removes the payment and recalculates invoice `paid_total`, `outstanding_balance`, and `status`
+     - deletes linked receipt PDF documents for that payment
 2. `POST /invoices/{apartmentId}/regenerate/` (administrator, superadmin) (optional)
    - if you want per-apartment regeneration
 3. `POST /invoices/send-monthly-email/` (administrator, superadmin)

@@ -1,16 +1,19 @@
 from decimal import Decimal, ROUND_HALF_UP
-from datetime import date
+from datetime import date, timedelta
 
 from django.core import mail
 from django.test import override_settings
 from django.urls import reverse
+from django.utils import timezone
 from rest_framework import status
 from rest_framework.test import APITestCase
 
 from accounts.models import User
 from flats.models import (
     Apartment,
+    ApartmentUser,
     Building,
+    DesignatedVoter,
     ExpenseItem,
     HeatedWaterMeasurementInput,
     HeatingMeasurementInput,
@@ -18,6 +21,8 @@ from flats.models import (
     InvoiceDocument,
     NotificationDispatch,
     PaymentRecord,
+    Vote,
+    VoteSession,
 )
 
 
@@ -55,8 +60,6 @@ class InvoiceGenerationTests(APITestCase):
         HeatingMeasurementInput.objects.create(
             apartment=self.a1,
             measurement_date=date(2026, 4, 1),
-            billing_period_start=date(2026, 3, 1),
-            billing_period_end=date(2026, 4, 1),
             e_factor=Decimal("0.10"),
             f_factor=Decimal("0.30"),
             units_counted=Decimal("100"),
@@ -66,8 +69,6 @@ class InvoiceGenerationTests(APITestCase):
         HeatingMeasurementInput.objects.create(
             apartment=self.a2,
             measurement_date=date(2026, 4, 1),
-            billing_period_start=date(2026, 3, 1),
-            billing_period_end=date(2026, 4, 1),
             e_factor=Decimal("0.20"),
             f_factor=Decimal("0.20"),
             units_counted=Decimal("80"),
@@ -77,16 +78,12 @@ class InvoiceGenerationTests(APITestCase):
         HeatedWaterMeasurementInput.objects.create(
             apartment=self.a1,
             measurement_date=date(2026, 4, 1),
-            billing_period_start=date(2026, 3, 1),
-            billing_period_end=date(2026, 4, 1),
             computed_heating_water_volume=Decimal("30"),
             created_by_user=self.admin,
         )
         HeatedWaterMeasurementInput.objects.create(
             apartment=self.a2,
             measurement_date=date(2026, 4, 1),
-            billing_period_start=date(2026, 3, 1),
-            billing_period_end=date(2026, 4, 1),
             computed_heating_water_volume=Decimal("70"),
             created_by_user=self.admin,
         )
@@ -149,8 +146,6 @@ class InvoiceGenerationTests(APITestCase):
         HeatingMeasurementInput.objects.create(
             apartment=self.a1,
             measurement_date=date(2026, 5, 1),
-            billing_period_start=date(2026, 4, 1),
-            billing_period_end=date(2026, 5, 1),
             e_factor=Decimal("2.0"),
             f_factor=Decimal("1.0"),
             units_counted=Decimal("10"),
@@ -174,8 +169,6 @@ class InvoiceGenerationTests(APITestCase):
             reverse("heating-inputs-bulk-upsert"),
             {
                 "measurement_date": "2026-06-01",
-                "billing_period_start": "2026-05-01",
-                "billing_period_end": "2026-06-01",
                 "rows": [
                     {"apartment_id": self.a1.id, "units_counted": "12"},
                     {"apartment_id": self.a2.id, "units_counted": "18"},
@@ -207,8 +200,6 @@ class InvoiceGenerationTests(APITestCase):
         HeatingMeasurementInput.objects.create(
             apartment=self.a1,
             measurement_date=date(2026, 6, 1),
-            billing_period_start=date(2026, 5, 1),
-            billing_period_end=date(2026, 6, 1),
             e_factor=Decimal("0.10"),
             f_factor=Decimal("0.30"),
             current_reading=Decimal("150"),
@@ -219,8 +210,6 @@ class InvoiceGenerationTests(APITestCase):
         HeatedWaterMeasurementInput.objects.create(
             apartment=self.a1,
             measurement_date=date(2026, 6, 1),
-            billing_period_start=date(2026, 5, 1),
-            billing_period_end=date(2026, 6, 1),
             current_reading=Decimal("40"),
             computed_heating_water_volume=Decimal("5"),
             created_by_user=self.admin,
@@ -230,8 +219,6 @@ class InvoiceGenerationTests(APITestCase):
             reverse("heating-inputs-monthly-upsert"),
             {
                 "measurement_date": "2026-07-01",
-                "billing_period_start": "2026-06-01",
-                "billing_period_end": "2026-07-01",
                 "rows": [
                     {
                         "apartment_id": self.a1.id,
@@ -254,8 +241,6 @@ class InvoiceGenerationTests(APITestCase):
         HeatingMeasurementInput.objects.create(
             apartment=self.a1,
             measurement_date=date(2026, 7, 1),
-            billing_period_start=date(2026, 6, 1),
-            billing_period_end=date(2026, 7, 1),
             e_factor=Decimal("0.10"),
             f_factor=Decimal("0.30"),
             current_reading=Decimal("170"),
@@ -287,8 +272,6 @@ class InvoiceGenerationTests(APITestCase):
         HeatingMeasurementInput.objects.create(
             apartment=self.a1,
             measurement_date=date(2026, 3, 1),
-            billing_period_start=date(2026, 2, 1),
-            billing_period_end=date(2026, 3, 1),
             e_factor=Decimal("0.10"),
             f_factor=Decimal("0.30"),
             current_reading=Decimal("100"),
@@ -299,8 +282,6 @@ class InvoiceGenerationTests(APITestCase):
         HeatingMeasurementInput.objects.create(
             apartment=self.a1,
             measurement_date=date(2026, 4, 1),
-            billing_period_start=date(2026, 3, 1),
-            billing_period_end=date(2026, 4, 1),
             e_factor=Decimal("0.10"),
             f_factor=Decimal("0.30"),
             current_reading=Decimal("130"),
@@ -311,8 +292,6 @@ class InvoiceGenerationTests(APITestCase):
         HeatingMeasurementInput.objects.create(
             apartment=self.a2,
             measurement_date=date(2026, 3, 1),
-            billing_period_start=date(2026, 2, 1),
-            billing_period_end=date(2026, 3, 1),
             e_factor=Decimal("0.20"),
             f_factor=Decimal("0.20"),
             current_reading=Decimal("150"),
@@ -323,8 +302,6 @@ class InvoiceGenerationTests(APITestCase):
         HeatingMeasurementInput.objects.create(
             apartment=self.a2,
             measurement_date=date(2026, 4, 1),
-            billing_period_start=date(2026, 3, 1),
-            billing_period_end=date(2026, 4, 1),
             e_factor=Decimal("0.20"),
             f_factor=Decimal("0.20"),
             current_reading=Decimal("170"),
@@ -335,8 +312,6 @@ class InvoiceGenerationTests(APITestCase):
         HeatedWaterMeasurementInput.objects.create(
             apartment=self.a1,
             measurement_date=date(2026, 3, 1),
-            billing_period_start=date(2026, 2, 1),
-            billing_period_end=date(2026, 3, 1),
             current_reading=Decimal("10"),
             computed_heating_water_volume=Decimal("0"),
             created_by_user=self.admin,
@@ -344,8 +319,6 @@ class InvoiceGenerationTests(APITestCase):
         HeatedWaterMeasurementInput.objects.create(
             apartment=self.a1,
             measurement_date=date(2026, 4, 1),
-            billing_period_start=date(2026, 3, 1),
-            billing_period_end=date(2026, 4, 1),
             current_reading=Decimal("18"),
             computed_heating_water_volume=Decimal("8"),
             created_by_user=self.admin,
@@ -353,8 +326,6 @@ class InvoiceGenerationTests(APITestCase):
         HeatedWaterMeasurementInput.objects.create(
             apartment=self.a2,
             measurement_date=date(2026, 3, 1),
-            billing_period_start=date(2026, 2, 1),
-            billing_period_end=date(2026, 3, 1),
             current_reading=Decimal("20"),
             computed_heating_water_volume=Decimal("0"),
             created_by_user=self.admin,
@@ -362,8 +333,6 @@ class InvoiceGenerationTests(APITestCase):
         HeatedWaterMeasurementInput.objects.create(
             apartment=self.a2,
             measurement_date=date(2026, 4, 1),
-            billing_period_start=date(2026, 3, 1),
-            billing_period_end=date(2026, 4, 1),
             current_reading=Decimal("32"),
             computed_heating_water_volume=Decimal("12"),
             created_by_user=self.admin,
@@ -390,8 +359,6 @@ class InvoiceGenerationTests(APITestCase):
         HeatingMeasurementInput.objects.create(
             apartment=self.a1,
             measurement_date=date(2026, 4, 1),
-            billing_period_start=date(2026, 3, 1),
-            billing_period_end=date(2026, 4, 1),
             e_factor=Decimal("0.10"),
             f_factor=Decimal("0.30"),
             units_counted=Decimal("100"),
@@ -401,8 +368,6 @@ class InvoiceGenerationTests(APITestCase):
         HeatingMeasurementInput.objects.create(
             apartment=self.a2,
             measurement_date=date(2026, 4, 1),
-            billing_period_start=date(2026, 3, 1),
-            billing_period_end=date(2026, 4, 1),
             e_factor=Decimal("0.20"),
             f_factor=Decimal("0.20"),
             units_counted=Decimal("80"),
@@ -412,16 +377,12 @@ class InvoiceGenerationTests(APITestCase):
         HeatedWaterMeasurementInput.objects.create(
             apartment=self.a1,
             measurement_date=date(2026, 4, 1),
-            billing_period_start=date(2026, 3, 1),
-            billing_period_end=date(2026, 4, 1),
             computed_heating_water_volume=Decimal("30"),
             created_by_user=self.admin,
         )
         HeatedWaterMeasurementInput.objects.create(
             apartment=self.a2,
             measurement_date=date(2026, 4, 1),
-            billing_period_start=date(2026, 3, 1),
-            billing_period_end=date(2026, 4, 1),
             computed_heating_water_volume=Decimal("70"),
             created_by_user=self.admin,
         )
@@ -474,6 +435,100 @@ class InvoiceGenerationTests(APITestCase):
         # Owners-only: split by ownership permille (50/50 here).
         self.assertEqual(i1.owners_only_total, Decimal("100.00"))
         self.assertEqual(i2.owners_only_total, Decimal("100.00"))
+
+    def test_generate_response_includes_summary_and_warnings(self):
+        month = "2026-09"
+        ExpenseItem.objects.create(
+            building=self.building,
+            expense_category=ExpenseItem.Category.GAS_HEATING,
+            expense_date=date(2026, 9, 10),
+            amount=Decimal("120.00"),
+            created_by_user=self.admin,
+        )
+
+        response = self.client.post(reverse("invoices-generate"), {"month": month}, format="json")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["month"], month)
+        self.assertIn("created", response.data)
+        self.assertIn("updated", response.data)
+        self.assertIn("warnings", response.data)
+        self.assertGreater(len(response.data["warnings"]), 0)
+
+    def test_invoice_generation_isolated_per_building_and_month(self):
+        month = "2026-10"
+        other_building = Building.objects.create(name="B2")
+        b2a1 = Apartment.objects.create(
+            building=other_building,
+            unit_code="B2A1",
+            ownership_permille=Decimal("1000"),
+            heating_e_factor=Decimal("0.10"),
+            heating_f_factor=Decimal("0.20"),
+        )
+
+        ExpenseItem.objects.create(
+            building=self.building,
+            expense_category=ExpenseItem.Category.COMMON_POWER,
+            expense_date=date(2026, 10, 12),
+            amount=Decimal("60.00"),
+            created_by_user=self.admin,
+        )
+        ExpenseItem.objects.create(
+            building=other_building,
+            expense_category=ExpenseItem.Category.COMMON_POWER,
+            expense_date=date(2026, 10, 12),
+            amount=Decimal("90.00"),
+            created_by_user=self.admin,
+        )
+        ExpenseItem.objects.create(
+            building=self.building,
+            expense_category=ExpenseItem.Category.COMMON_POWER,
+            expense_date=date(2026, 11, 12),
+            amount=Decimal("999.00"),
+            created_by_user=self.admin,
+        )
+
+        response = self.client.post(reverse("invoices-generate"), {"month": month}, format="json")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        i1 = Invoice.objects.get(apartment=self.a1, month=month)
+        i2 = Invoice.objects.get(apartment=self.a2, month=month)
+        i3 = Invoice.objects.get(apartment=b2a1, month=month)
+
+        self.assertEqual(i1.common_recurring_total, Decimal("30.00"))
+        self.assertEqual(i2.common_recurring_total, Decimal("30.00"))
+        self.assertEqual(i3.common_recurring_total, Decimal("90.00"))
+        self.assertEqual(i1.invoice_total + i2.invoice_total + i3.invoice_total, Decimal("150.00"))
+
+    def test_rounding_remainder_distribution_keeps_category_total_balanced(self):
+        month = "2026-12"
+        a3 = Apartment.objects.create(
+            building=self.building,
+            unit_code="A3",
+            ownership_permille=Decimal("0"),
+            heating_e_factor=Decimal("0.10"),
+            heating_f_factor=Decimal("0.20"),
+        )
+        self.a1.ownership_permille = Decimal("333")
+        self.a2.ownership_permille = Decimal("333")
+        a3.ownership_permille = Decimal("334")
+        self.a1.save(update_fields=["ownership_permille"])
+        self.a2.save(update_fields=["ownership_permille"])
+        a3.save(update_fields=["ownership_permille"])
+
+        ExpenseItem.objects.create(
+            building=self.building,
+            expense_category=ExpenseItem.Category.COMMON_POWER,
+            expense_date=date(2026, 12, 5),
+            amount=Decimal("100.00"),
+            created_by_user=self.admin,
+        )
+
+        response = self.client.post(reverse("invoices-generate"), {"month": month}, format="json")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        invoices = Invoice.objects.filter(apartment__in=[self.a1, self.a2, a3], month=month)
+        allocated_total = sum((inv.common_recurring_total for inv in invoices), Decimal("0.00"))
+        self.assertEqual(allocated_total, Decimal("100.00"))
 
     @override_settings(EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend")
     def test_mark_paid_creates_payment_receipt_and_email_dispatch(self):
@@ -541,3 +596,642 @@ class InvoiceGenerationTests(APITestCase):
         )
         response = self.client.post(reverse("invoices-send-receipt", args=[invoice.id]), {"payment_id": payment.id}, format="json")
         self.assertEqual(response.status_code, status.HTTP_409_CONFLICT)
+
+    @override_settings(EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend")
+    def test_send_monthly_invoices_dispatches_and_skips_duplicates(self):
+        month = "2026-07"
+        tenant_1 = User.objects.create_user(username="tenant_a1", password="pass1234", email="a1@example.com")
+        tenant_2 = User.objects.create_user(username="tenant_a2", password="pass1234", email="a2@example.com")
+        self.a1.memberships.create(user=tenant_1, is_owner=True, is_tenant=False)
+        self.a2.memberships.create(user=tenant_2, is_owner=True, is_tenant=False)
+
+        Invoice.objects.create(
+            apartment=self.a1,
+            month=month,
+            invoice_total=Decimal("111.00"),
+            paid_total=Decimal("0.00"),
+            outstanding_balance=Decimal("111.00"),
+            status=Invoice.Status.ISSUED,
+        )
+        Invoice.objects.create(
+            apartment=self.a2,
+            month=month,
+            invoice_total=Decimal("222.00"),
+            paid_total=Decimal("100.00"),
+            outstanding_balance=Decimal("122.00"),
+            status=Invoice.Status.PAID,
+        )
+
+        first = self.client.post(reverse("invoices-send-monthly-invoices"), {"month": month}, format="json")
+        self.assertEqual(first.status_code, status.HTTP_200_OK)
+        self.assertEqual(first.data["sent"], 2)
+        self.assertEqual(first.data["failed"], 0)
+        self.assertEqual(first.data["skipped"], 0)
+        self.assertEqual(len(mail.outbox), 2)
+        self.assertEqual(
+            InvoiceDocument.objects.filter(document_type=InvoiceDocument.DocumentType.INVOICE, invoice__month=month).count(),
+            2,
+        )
+        self.assertEqual(
+            NotificationDispatch.objects.filter(
+                notification_type=NotificationDispatch.NotificationType.INVOICE_MONTHLY,
+                invoice__month=month,
+                status=NotificationDispatch.Status.SENT,
+            ).count(),
+            2,
+        )
+
+        second = self.client.post(reverse("invoices-send-monthly-invoices"), {"month": month}, format="json")
+        self.assertEqual(second.status_code, status.HTTP_200_OK)
+        self.assertEqual(second.data["sent"], 0)
+        self.assertEqual(second.data["failed"], 0)
+        self.assertEqual(second.data["skipped"], 2)
+
+    @override_settings(EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend")
+    def test_retry_failed_notifications_retries_monthly_invoice_dispatch(self):
+        month = "2026-08"
+        tenant = User.objects.create_user(username="tenant_retry", password="pass1234", email="retry@example.com")
+        self.a1.memberships.create(user=tenant, is_owner=True, is_tenant=False)
+        invoice = Invoice.objects.create(
+            apartment=self.a1,
+            month=month,
+            invoice_total=Decimal("99.00"),
+            paid_total=Decimal("0.00"),
+            outstanding_balance=Decimal("99.00"),
+            status=Invoice.Status.ISSUED,
+        )
+        NotificationDispatch.objects.create(
+            invoice=invoice,
+            notification_type=NotificationDispatch.NotificationType.INVOICE_MONTHLY,
+            recipient_email=tenant.email,
+            status=NotificationDispatch.Status.FAILED,
+            error_message="simulated",
+        )
+
+        response = self.client.post(
+            reverse("invoices-retry-failed-notifications"),
+            {"month": month, "notification_type": NotificationDispatch.NotificationType.INVOICE_MONTHLY},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["retried"], 1)
+        self.assertEqual(response.data["sent"], 1)
+        self.assertEqual(response.data["failed"], 0)
+        self.assertEqual(response.data["skipped"], 0)
+        self.assertEqual(len(mail.outbox), 1)
+        self.assertTrue(
+            NotificationDispatch.objects.filter(
+                invoice=invoice,
+                notification_type=NotificationDispatch.NotificationType.INVOICE_MONTHLY,
+                status=NotificationDispatch.Status.SENT,
+            ).exists()
+        )
+
+    def test_admin_can_create_vote_session(self):
+        now = timezone.now()
+        payload = {
+            "building": self.building.id,
+            "session_type": VoteSession.SessionType.MOTION,
+            "title": "Έγκριση δαπάνης",
+            "description": "Ψήφος για έκτακτη δαπάνη",
+            "start_at": (now - timedelta(hours=1)).isoformat(),
+            "end_at": (now + timedelta(days=1)).isoformat(),
+            "status": VoteSession.Status.ACTIVE,
+        }
+        response = self.client.post(reverse("voting-sessions-list"), payload, format="json")
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(VoteSession.objects.count(), 1)
+        self.assertEqual(VoteSession.objects.first().created_by_user, self.admin)
+
+    def test_designated_voter_can_cast_vote_once(self):
+        voter = User.objects.create_user(username="voter_a1", password="pass1234", role=User.Role.USER)
+        ApartmentUser.objects.create(apartment=self.a1, user=voter, is_owner=True, is_tenant=False)
+        DesignatedVoter.objects.create(apartment=self.a1, voter_user=voter)
+
+        session = VoteSession.objects.create(
+            building=self.building,
+            session_type=VoteSession.SessionType.MOTION,
+            title="Θέμα",
+            start_at=timezone.now() - timedelta(hours=1),
+            end_at=timezone.now() + timedelta(hours=1),
+            status=VoteSession.Status.ACTIVE,
+            created_by_user=self.admin,
+        )
+
+        self.client.force_authenticate(user=voter)
+        first = self.client.post(
+            reverse("voting-sessions-votes", args=[session.id]),
+            {"apartment_id": self.a1.id, "vote_value": Vote.Value.YES},
+            format="json",
+        )
+        self.assertEqual(first.status_code, status.HTTP_200_OK)
+        self.assertEqual(Vote.objects.filter(vote_session=session, apartment=self.a1).count(), 1)
+        self.assertEqual(Vote.objects.get(vote_session=session, apartment=self.a1).vote_value, Vote.Value.YES)
+
+        second = self.client.post(
+            reverse("voting-sessions-votes", args=[session.id]),
+            {"apartment_id": self.a1.id, "vote_value": Vote.Value.NO},
+            format="json",
+        )
+        self.assertEqual(second.status_code, status.HTTP_409_CONFLICT)
+        self.assertEqual(Vote.objects.filter(vote_session=session, apartment=self.a1).count(), 1)
+        self.assertEqual(Vote.objects.get(vote_session=session, apartment=self.a1).vote_value, Vote.Value.YES)
+
+    def test_non_designated_user_cannot_vote_for_apartment(self):
+        user = User.objects.create_user(username="tenant_a1_readonly", password="pass1234", role=User.Role.USER)
+        ApartmentUser.objects.create(apartment=self.a1, user=user, is_owner=False, is_tenant=True)
+        DesignatedVoter.objects.create(apartment=self.a1, voter_user=self.admin)
+
+        session = VoteSession.objects.create(
+            building=self.building,
+            session_type=VoteSession.SessionType.MOTION,
+            title="Θέμα",
+            start_at=timezone.now() - timedelta(hours=1),
+            end_at=timezone.now() + timedelta(hours=1),
+            status=VoteSession.Status.ACTIVE,
+            created_by_user=self.admin,
+        )
+
+        self.client.force_authenticate(user=user)
+        response = self.client.post(
+            reverse("voting-sessions-votes", args=[session.id]),
+            {"apartment_id": self.a1.id, "vote_value": Vote.Value.YES},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertFalse(Vote.objects.filter(vote_session=session, apartment=self.a1).exists())
+
+    def test_results_available_anytime_with_permille(self):
+        session = VoteSession.objects.create(
+            building=self.building,
+            session_type=VoteSession.SessionType.MOTION,
+            title="Θέμα",
+            start_at=timezone.now() - timedelta(hours=1),
+            end_at=timezone.now() + timedelta(hours=2),
+            status=VoteSession.Status.ACTIVE,
+            created_by_user=self.admin,
+        )
+        Vote.objects.create(vote_session=session, apartment=self.a1, voter_user=self.admin, vote_value=Vote.Value.YES)
+        Vote.objects.create(vote_session=session, apartment=self.a2, voter_user=self.admin, vote_value=Vote.Value.ABSTAIN)
+
+        response = self.client.get(reverse("voting-sessions-results", args=[session.id]))
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["counts"]["yes"], 1)
+        self.assertEqual(response.data["counts"]["no"], 0)
+        self.assertEqual(response.data["counts"]["abstain"], 1)
+        self.assertEqual(response.data["permille"]["yes"], Decimal("500.0"))
+        self.assertEqual(response.data["permille"]["abstain"], Decimal("500.0"))
+        self.assertEqual(response.data["permille"]["no"], Decimal("0.0"))
+        self.assertEqual(response.data["permille"]["submitted_total"], Decimal("1000.0"))
+        self.assertEqual(response.data["permille"]["eligible_total"], Decimal("1000.0"))
+
+    def test_custom_vote_options_accept_valid_and_reject_invalid_choice(self):
+        voter = User.objects.create_user(username="voter_custom", password="pass1234", role=User.Role.USER)
+        ApartmentUser.objects.create(apartment=self.a1, user=voter, is_owner=True, is_tenant=False)
+        DesignatedVoter.objects.create(apartment=self.a1, voter_user=voter)
+        session = VoteSession.objects.create(
+            building=self.building,
+            session_type=VoteSession.SessionType.MOTION,
+            title="Επιλογή προσφοράς",
+            vote_options_json=["Προσφορά Α", "Προσφορά Β", "Λευκό"],
+            start_at=timezone.now() - timedelta(hours=1),
+            end_at=timezone.now() + timedelta(hours=1),
+            status=VoteSession.Status.ACTIVE,
+            created_by_user=self.admin,
+        )
+
+        self.client.force_authenticate(user=voter)
+        valid = self.client.post(
+            reverse("voting-sessions-votes", args=[session.id]),
+            {"apartment_id": self.a1.id, "vote_value": "Προσφορά Β"},
+            format="json",
+        )
+        self.assertEqual(valid.status_code, status.HTTP_200_OK)
+        self.assertEqual(Vote.objects.get(vote_session=session, apartment=self.a1).vote_value, "Προσφορά Β")
+
+        other_apartment = Apartment.objects.create(
+            building=self.building,
+            unit_code="A3",
+            ownership_permille=Decimal("0"),
+            heating_e_factor=Decimal("0.1"),
+            heating_f_factor=Decimal("0.2"),
+        )
+        ApartmentUser.objects.create(apartment=other_apartment, user=voter, is_owner=True, is_tenant=False)
+        DesignatedVoter.objects.create(apartment=other_apartment, voter_user=voter)
+        invalid = self.client.post(
+            reverse("voting-sessions-votes", args=[session.id]),
+            {"apartment_id": other_apartment.id, "vote_value": "Μη έγκυρη επιλογή"},
+            format="json",
+        )
+        self.assertEqual(invalid.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_results_return_dynamic_counts_for_custom_options(self):
+        session = VoteSession.objects.create(
+            building=self.building,
+            session_type=VoteSession.SessionType.MOTION,
+            title="Επιλογή έργου",
+            vote_options_json=["Σενάριο Α", "Σενάριο Β"],
+            start_at=timezone.now() - timedelta(days=2),
+            end_at=timezone.now() - timedelta(hours=1),
+            status=VoteSession.Status.CLOSED,
+            created_by_user=self.admin,
+        )
+        Vote.objects.create(vote_session=session, apartment=self.a1, voter_user=self.admin, vote_value="Σενάριο Α")
+        Vote.objects.create(vote_session=session, apartment=self.a2, voter_user=self.admin, vote_value="Σενάριο Β")
+
+        response = self.client.get(reverse("voting-sessions-results", args=[session.id]))
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["counts"]["Σενάριο Α"], 1)
+        self.assertEqual(response.data["counts"]["Σενάριο Β"], 1)
+        self.assertEqual(response.data["permille"]["Σενάριο Α"], Decimal("500.0"))
+        self.assertEqual(response.data["permille"]["Σενάριο Β"], Decimal("500.0"))
+
+    def test_superadmin_can_assign_designated_voter(self):
+        superadmin = User.objects.create_user(
+            username="superadmin_assign",
+            password="pass1234",
+            role=User.Role.SUPERADMIN,
+        )
+        candidate = User.objects.create_user(username="candidate_voter", password="pass1234", role=User.Role.USER)
+        ApartmentUser.objects.create(apartment=self.a1, user=candidate, is_owner=True, is_tenant=False)
+
+        self.client.force_authenticate(user=superadmin)
+        response = self.client.put(
+            reverse("apartments-designated-voter", args=[self.a1.id]),
+            {"voter_user_id": candidate.id},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertTrue(DesignatedVoter.objects.filter(apartment=self.a1, voter_user=candidate).exists())
+
+
+class ApartmentPersonalScopeTests(APITestCase):
+    def setUp(self):
+        self.admin = User.objects.create_user(
+            username="admin_scope",
+            password="pass1234",
+            role=User.Role.ADMINISTRATOR,
+        )
+        self.building = Building.objects.create(name="Scope B1")
+        self.linked = Apartment.objects.create(
+            building=self.building,
+            unit_code="A1",
+            ownership_permille=Decimal("500"),
+            heating_e_factor=Decimal("0.10"),
+            heating_f_factor=Decimal("0.30"),
+        )
+        self.other = Apartment.objects.create(
+            building=self.building,
+            unit_code="A2",
+            ownership_permille=Decimal("500"),
+            heating_e_factor=Decimal("0.20"),
+            heating_f_factor=Decimal("0.20"),
+        )
+        ApartmentUser.objects.create(apartment=self.linked, user=self.admin, is_owner=True, is_tenant=False)
+        self.client.force_authenticate(user=self.admin)
+
+    def test_admin_default_returns_only_linked_apartments(self):
+        all_response = self.client.get(f"{reverse('apartments-list')}?all=1")
+        self.assertEqual(all_response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(all_response.data), 2)
+
+        linked_response = self.client.get(reverse("apartments-list"))
+        self.assertEqual(linked_response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(linked_response.data), 1)
+        self.assertEqual(linked_response.data[0]["id"], self.linked.id)
+
+
+class AdminDestructiveOperationsTests(APITestCase):
+    def setUp(self):
+        self.admin = User.objects.create_user(
+            username="admin_destructive",
+            password="pass1234",
+            role=User.Role.ADMINISTRATOR,
+        )
+        self.regular = User.objects.create_user(
+            username="regular_user",
+            password="pass1234",
+            role=User.Role.USER,
+        )
+        self.building = Building.objects.create(name="Destructive B1")
+        self.a1 = Apartment.objects.create(
+            building=self.building,
+            unit_code="A1",
+            ownership_permille=Decimal("500"),
+            heating_e_factor=Decimal("0.10"),
+            heating_f_factor=Decimal("0.30"),
+        )
+        self.a2 = Apartment.objects.create(
+            building=self.building,
+            unit_code="A2",
+            ownership_permille=Decimal("500"),
+            heating_e_factor=Decimal("0.10"),
+            heating_f_factor=Decimal("0.30"),
+        )
+        ApartmentUser.objects.create(apartment=self.a1, user=self.regular, is_owner=True, is_tenant=False)
+        self.client.force_authenticate(user=self.admin)
+
+    def test_regular_user_cannot_delete_measurements_by_date(self):
+        measurement_date = date(2026, 8, 1)
+        heating = HeatingMeasurementInput.objects.create(
+            apartment=self.a1,
+            measurement_date=measurement_date,
+            e_factor=Decimal("0.10"),
+            f_factor=Decimal("0.30"),
+            units_counted=Decimal("10"),
+            computed_radiator_heating_energy=Decimal("0.03"),
+            created_by_user=self.admin,
+        )
+        self.client.force_authenticate(user=self.regular)
+        response = self.client.delete(
+            f"{reverse('heating-inputs-delete-by-date')}?measurement_date={measurement_date.isoformat()}"
+        )
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertTrue(HeatingMeasurementInput.objects.filter(id=heating.id).exists())
+
+    def test_admin_deletes_measurements_by_date(self):
+        measurement_date = date(2026, 8, 1)
+        HeatingMeasurementInput.objects.create(
+            apartment=self.a1,
+            measurement_date=measurement_date,
+            e_factor=Decimal("0.10"),
+            f_factor=Decimal("0.30"),
+            units_counted=Decimal("10"),
+            computed_radiator_heating_energy=Decimal("0.03"),
+            created_by_user=self.admin,
+        )
+        HeatedWaterMeasurementInput.objects.create(
+            apartment=self.a1,
+            measurement_date=measurement_date,
+            computed_heating_water_volume=Decimal("5"),
+            created_by_user=self.admin,
+        )
+
+        response = self.client.delete(
+            f"{reverse('heating-inputs-delete-by-date')}?measurement_date={measurement_date.isoformat()}"
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(HeatingMeasurementInput.objects.filter(apartment=self.a1, measurement_date=measurement_date).count(), 0)
+        self.assertEqual(
+            HeatedWaterMeasurementInput.objects.filter(apartment=self.a1, measurement_date=measurement_date).count(),
+            0,
+        )
+
+    def test_delete_measurements_blocked_when_month_has_paid_invoices(self):
+        measurement_date = date(2026, 9, 1)
+        HeatingMeasurementInput.objects.create(
+            apartment=self.a1,
+            measurement_date=measurement_date,
+            e_factor=Decimal("0.10"),
+            f_factor=Decimal("0.30"),
+            units_counted=Decimal("10"),
+            computed_radiator_heating_energy=Decimal("0.03"),
+            created_by_user=self.admin,
+        )
+        invoice = Invoice.objects.create(
+            apartment=self.a1,
+            month="2026-09",
+            invoice_total=Decimal("80.00"),
+            paid_total=Decimal("20.00"),
+            outstanding_balance=Decimal("60.00"),
+            status=Invoice.Status.ISSUED,
+        )
+        PaymentRecord.objects.create(
+            invoice=invoice,
+            apartment=self.a1,
+            amount=Decimal("20.00"),
+            payment_date=date(2026, 9, 15),
+            created_by_user=self.admin,
+        )
+
+        response = self.client.delete(
+            f"{reverse('heating-inputs-delete-by-date')}?measurement_date={measurement_date.isoformat()}"
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(HeatingMeasurementInput.objects.filter(apartment=self.a1, measurement_date=measurement_date).count(), 1)
+
+    def test_payment_delete_recalculates_invoice_balances(self):
+        invoice = Invoice.objects.create(
+            apartment=self.a1,
+            month="2026-10",
+            invoice_total=Decimal("100.00"),
+            paid_total=Decimal("100.00"),
+            outstanding_balance=Decimal("0.00"),
+            status=Invoice.Status.PAID,
+        )
+        payment = PaymentRecord.objects.create(
+            invoice=invoice,
+            apartment=self.a1,
+            amount=Decimal("100.00"),
+            payment_date=date(2026, 10, 10),
+            created_by_user=self.admin,
+        )
+
+        response = self.client.delete(reverse("payments-detail", args=[payment.id]))
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+
+        invoice.refresh_from_db()
+        self.assertEqual(invoice.paid_total, Decimal("0.00"))
+        self.assertEqual(invoice.outstanding_balance, Decimal("100.00"))
+        self.assertEqual(invoice.status, Invoice.Status.ISSUED)
+
+    def test_regular_user_cannot_delete_payment(self):
+        invoice = Invoice.objects.create(
+            apartment=self.a1,
+            month="2026-11",
+            invoice_total=Decimal("50.00"),
+            paid_total=Decimal("50.00"),
+            outstanding_balance=Decimal("0.00"),
+            status=Invoice.Status.PAID,
+        )
+        payment = PaymentRecord.objects.create(
+            invoice=invoice,
+            apartment=self.a1,
+            amount=Decimal("50.00"),
+            payment_date=date(2026, 11, 10),
+            created_by_user=self.admin,
+        )
+        self.client.force_authenticate(user=self.regular)
+        response = self.client.delete(reverse("payments-detail", args=[payment.id]))
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_recall_month_cascades_payments_and_deletes_all_invoices(self):
+        invoice_a1 = Invoice.objects.create(
+            apartment=self.a1,
+            month="2026-12",
+            invoice_total=Decimal("90.00"),
+            paid_total=Decimal("40.00"),
+            outstanding_balance=Decimal("50.00"),
+            status=Invoice.Status.ISSUED,
+        )
+        invoice_a2 = Invoice.objects.create(
+            apartment=self.a2,
+            month="2026-12",
+            invoice_total=Decimal("60.00"),
+            paid_total=Decimal("0.00"),
+            outstanding_balance=Decimal("60.00"),
+            status=Invoice.Status.ISSUED,
+        )
+        other_month = Invoice.objects.create(
+            apartment=self.a1,
+            month="2027-01",
+            invoice_total=Decimal("30.00"),
+            paid_total=Decimal("0.00"),
+            outstanding_balance=Decimal("30.00"),
+            status=Invoice.Status.ISSUED,
+        )
+        payment = PaymentRecord.objects.create(
+            invoice=invoice_a1,
+            apartment=self.a1,
+            amount=Decimal("40.00"),
+            payment_date=date(2026, 12, 5),
+            created_by_user=self.admin,
+        )
+        InvoiceDocument.objects.create(
+            invoice=invoice_a1,
+            payment=payment,
+            document_type=InvoiceDocument.DocumentType.RECEIPT,
+            file_name="receipt.pdf",
+            mime_type="application/pdf",
+            content=b"%PDF-1.4 test",
+        )
+
+        response = self.client.post(reverse("invoices-recall-month"), {"month": "2026-12", "confirm": True}, format="json")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["invoices_deleted"], 2)
+        self.assertFalse(Invoice.objects.filter(id=invoice_a1.id).exists())
+        self.assertFalse(Invoice.objects.filter(id=invoice_a2.id).exists())
+        self.assertTrue(Invoice.objects.filter(id=other_month.id).exists())
+        self.assertEqual(PaymentRecord.objects.filter(id=payment.id).count(), 0)
+        self.assertEqual(InvoiceDocument.objects.filter(invoice_id=invoice_a1.id).count(), 0)
+
+    def test_recall_month_requires_confirmation(self):
+        Invoice.objects.create(
+            apartment=self.a1,
+            month="2027-01",
+            invoice_total=Decimal("30.00"),
+            paid_total=Decimal("0.00"),
+            outstanding_balance=Decimal("30.00"),
+            status=Invoice.Status.ISSUED,
+        )
+        response = self.client.post(reverse("invoices-recall-month"), {"month": "2027-01"}, format="json")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertTrue(Invoice.objects.filter(month="2027-01").exists())
+
+    def test_admin_deletes_expense(self):
+        expense = ExpenseItem.objects.create(
+            building=self.building,
+            expense_category=ExpenseItem.Category.GAS_HEATING,
+            expense_date=date(2026, 8, 10),
+            month="2026-08",
+            amount=Decimal("120.00"),
+            created_by_user=self.admin,
+        )
+        response = self.client.delete(reverse("expenses-detail", args=[expense.id]))
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+        self.assertFalse(ExpenseItem.objects.filter(id=expense.id).exists())
+
+    def test_regular_user_cannot_delete_expense(self):
+        expense = ExpenseItem.objects.create(
+            building=self.building,
+            expense_category=ExpenseItem.Category.GAS_HEATING,
+            expense_date=date(2026, 8, 10),
+            month="2026-08",
+            amount=Decimal("120.00"),
+            created_by_user=self.admin,
+        )
+        self.client.force_authenticate(user=self.regular)
+        response = self.client.delete(reverse("expenses-detail", args=[expense.id]))
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertTrue(ExpenseItem.objects.filter(id=expense.id).exists())
+
+    def _create_measurement(self, measurement_date, reading):
+        HeatingMeasurementInput.objects.create(
+            apartment=self.a1,
+            measurement_date=measurement_date,
+            e_factor=Decimal("0.10"),
+            f_factor=Decimal("0.30"),
+            current_reading=Decimal(reading),
+            units_counted=Decimal(reading),
+            computed_radiator_heating_energy=Decimal("0.03"),
+            created_by_user=self.admin,
+        )
+        HeatedWaterMeasurementInput.objects.create(
+            apartment=self.a1,
+            measurement_date=measurement_date,
+            current_reading=Decimal(reading),
+            computed_heating_water_volume=Decimal(reading),
+            created_by_user=self.admin,
+        )
+
+    def test_admin_edits_measurements_when_not_allocated(self):
+        measurement_date = date(2026, 10, 1)
+        self._create_measurement(measurement_date, "10")
+
+        response = self.client.post(
+            reverse("heating-inputs-monthly-upsert"),
+            {
+                "measurement_date": measurement_date.isoformat(),
+                "rows": [
+                    {
+                        "apartment_id": self.a1.id,
+                        "heating_current_reading": "25",
+                        "heated_water_current_reading": "18",
+                    }
+                ],
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        heating = HeatingMeasurementInput.objects.get(apartment=self.a1, measurement_date=measurement_date)
+        water = HeatedWaterMeasurementInput.objects.get(apartment=self.a1, measurement_date=measurement_date)
+        self.assertEqual(heating.current_reading, Decimal("25.0"))
+        self.assertEqual(water.current_reading, Decimal("18.0"))
+
+    def test_edit_measurements_blocked_when_month_allocated(self):
+        measurement_date = date(2026, 11, 1)
+        self._create_measurement(measurement_date, "10")
+        Invoice.objects.create(
+            apartment=self.a1,
+            month="2026-11",
+            invoice_total=Decimal("50.00"),
+            paid_total=Decimal("0.00"),
+            outstanding_balance=Decimal("50.00"),
+            status=Invoice.Status.ISSUED,
+        )
+
+        response = self.client.post(
+            reverse("heating-inputs-monthly-upsert"),
+            {
+                "measurement_date": measurement_date.isoformat(),
+                "rows": [
+                    {
+                        "apartment_id": self.a1.id,
+                        "heating_current_reading": "25",
+                        "heated_water_current_reading": "18",
+                    }
+                ],
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        heating = HeatingMeasurementInput.objects.get(apartment=self.a1, measurement_date=measurement_date)
+        self.assertEqual(heating.current_reading, Decimal("10.0000"))
+
+    def test_date_detail_reports_locked(self):
+        measurement_date = date(2026, 12, 1)
+        self._create_measurement(measurement_date, "10")
+        Invoice.objects.create(
+            apartment=self.a1,
+            month="2026-12",
+            invoice_total=Decimal("50.00"),
+            paid_total=Decimal("0.00"),
+            outstanding_balance=Decimal("50.00"),
+            status=Invoice.Status.ISSUED,
+        )
+
+        response = self.client.get(
+            f"{reverse('heating-inputs-date-detail')}?measurement_date={measurement_date.isoformat()}"
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertTrue(response.data["locked"])

@@ -55,11 +55,53 @@ class DesignatedVoter(models.Model):
     updated_at = models.DateTimeField(auto_now=True)
 
 
+class VoteSession(models.Model):
+    class SessionType(models.TextChoices):
+        ADMINISTRATOR_ELECTION = "administrator_election", "Εκλογή διαχειριστή"
+        MOTION = "motion", "Θέμα ψηφοφορίας"
+
+    class Status(models.TextChoices):
+        DRAFT = "draft", "Πρόχειρη"
+        ACTIVE = "active", "Ενεργή"
+        CLOSED = "closed", "Κλειστή"
+
+    building = models.ForeignKey(Building, on_delete=models.CASCADE, related_name="vote_sessions")
+    session_type = models.CharField(max_length=32, choices=SessionType.choices, default=SessionType.MOTION)
+    title = models.CharField(max_length=255)
+    description = models.TextField(blank=True)
+    vote_options_json = models.JSONField(default=list, blank=True)
+    start_at = models.DateTimeField()
+    end_at = models.DateTimeField()
+    status = models.CharField(max_length=16, choices=Status.choices, default=Status.DRAFT)
+    created_by_user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self) -> str:
+        return f"{self.title} ({self.session_type})"
+
+
+class Vote(models.Model):
+    class Value(models.TextChoices):
+        YES = "yes", "Ναι"
+        NO = "no", "Όχι"
+        ABSTAIN = "abstain", "Αποχή"
+
+    vote_session = models.ForeignKey(VoteSession, on_delete=models.CASCADE, related_name="votes")
+    apartment = models.ForeignKey(Apartment, on_delete=models.CASCADE, related_name="votes")
+    voter_user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True)
+    vote_value = models.CharField(max_length=64)
+    submitted_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=["vote_session", "apartment"], name="uniq_vote_session_apartment"),
+        ]
+
 class HeatingMeasurementInput(models.Model):
     apartment = models.ForeignKey(Apartment, on_delete=models.CASCADE, related_name="heating_inputs")
     measurement_date = models.DateField()
-    billing_period_start = models.DateField()
-    billing_period_end = models.DateField()
     e_factor = models.DecimalField(max_digits=10, decimal_places=4)
     f_factor = models.DecimalField(max_digits=10, decimal_places=4)
     current_reading = models.DecimalField(max_digits=14, decimal_places=4, default=0)
@@ -76,8 +118,6 @@ class HeatingMeasurementInput(models.Model):
 class HeatedWaterMeasurementInput(models.Model):
     apartment = models.ForeignKey(Apartment, on_delete=models.CASCADE, related_name="heated_water_inputs")
     measurement_date = models.DateField()
-    billing_period_start = models.DateField()
-    billing_period_end = models.DateField()
     inputs_json = models.JSONField(default=dict, blank=True)
     current_reading = models.DecimalField(max_digits=14, decimal_places=4, default=0)
     computed_heating_water_volume = models.DecimalField(max_digits=14, decimal_places=4, default=0)
@@ -181,6 +221,7 @@ class InvoiceDocument(models.Model):
 class NotificationDispatch(models.Model):
     class NotificationType(models.TextChoices):
         RECEIPT_PAID = "receipt_paid", "Απόδειξη εξόφλησης"
+        INVOICE_MONTHLY = "invoice_monthly", "Μηνιαία αποστολή λογαριασμού"
 
     class Status(models.TextChoices):
         QUEUED = "queued", "Σε αναμονή"

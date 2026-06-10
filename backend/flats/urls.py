@@ -7,6 +7,7 @@ from .views import (
     HeatedWaterMeasurementInputViewSet,
     InvoiceViewSet,
     PaymentRecordViewSet,
+    VoteSessionViewSet,
 )
 
 router = DefaultRouter()
@@ -16,5 +17,6 @@ router.register("accounting/heated-water-inputs", HeatedWaterMeasurementInputVie
 router.register("accounting/expenses", ExpenseItemViewSet, basename="expenses")
 router.register("accounting/payments", PaymentRecordViewSet, basename="payments")
 router.register("invoices", InvoiceViewSet, basename="invoices")
+router.register("voting/sessions", VoteSessionViewSet, basename="voting-sessions")
 
 urlpatterns = router.urls

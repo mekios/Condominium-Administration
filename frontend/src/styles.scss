@@ -94,3 +94,94 @@ body {
   background: #101a33;
   color: #e6efff;
 }
+
+/* Reusable warning style across feature pages */
+.hint.warning,
+.app-warning {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+  color: #ffd97a !important;
+  border: 1px solid rgba(198, 144, 46, 0.45);
+  background: linear-gradient(180deg, rgba(96, 68, 18, 0.28), rgba(70, 49, 12, 0.22));
+  border-radius: 10px;
+  padding: 0.5rem 0.65rem;
+}
+
+.hint.warning::before,
+.app-warning::before {
+  content: "⚠";
+  color: #ffc94d;
+  font-weight: 700;
+  line-height: 1;
+  margin-top: 0.08rem;
+}
+
+/* Destructive actions: red border + red text/icon, no fill */
+button.btn.btn-danger {
+  border: 1px solid #d9586f;
+  background: transparent;
+  color: #f06b82;
+  box-shadow: none;
+}
+
+button.btn.btn-danger:hover:not(:disabled) {
+  border-color: #f06b82;
+  color: #ff8a9d;
+  background: transparent;
+}
+
+button.btn.btn-danger-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--action-btn-height);
+  height: var(--action-btn-height);
+  min-width: var(--action-btn-height);
+  padding: 0;
+  flex-shrink: 0;
+  vertical-align: middle;
+}
+
+button.btn.btn-danger-icon svg {
+  display: block;
+  width: 1rem;
+  height: 1rem;
+  stroke: #f06b82;
+  fill: none;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+:root {
+  --action-btn-height: 2.375rem;
+}
+
+.inline-action-group {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.inline-action-group button.btn {
+  height: var(--action-btn-height);
+  min-height: var(--action-btn-height);
+  max-height: var(--action-btn-height);
+  padding: 0 0.9rem;
+  box-sizing: border-box;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+}
+
+.inline-action-group button.btn.btn-danger-icon {
+  width: var(--action-btn-height);
+  min-width: var(--action-btn-height);
+  padding: 0;
+}
+
+button.btn.btn-danger-icon:hover:not(:disabled) svg {
+  stroke: #ff8a9d;
+}

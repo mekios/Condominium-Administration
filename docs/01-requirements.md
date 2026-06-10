@@ -79,7 +79,7 @@ There is also a `superadmin` who invites users and configures apartment assignme
     - computed units (read-only)
   - `units_counted` is computed as:
     - `current_heating_reading - previous_heating_reading`
-  - The entry includes declared `billing_period_start` and `billing_period_end` for the month.
+  - The entry is identified by a single `measurement_date`; no separate billing period is declared.
   - The system computes per-apartment radiator-heating amount using:
     - `((fi * ei) + (UnitsCounted / SumOfUnitsCounted) * (1 - Sum(fi * ei))) * gas_radiator_amount`
   - `ei`/`fi` are maintained as apartment master data (superadmin-maintained), then snapshotted into monthly measurement records; admin does not re-enter them each month.
@@ -96,7 +96,7 @@ There is also a `superadmin` who invites users and configures apartment assignme
     - computed units (read-only)
   - Heated-water units/volume used for allocation is computed as:
     - `current_heated_water_reading - previous_heated_water_reading`
-  - The inputs include the declared `billing_period` for the month entry.
+  - The inputs are identified by a single `measurement_date`; no separate billing period is declared.
   - The system computes and stores per-apartment heating-water volume consumed, which is used to:
     - allocate the heated-water portion of the gas bill, and
     - split the (separate) water consumption bill.

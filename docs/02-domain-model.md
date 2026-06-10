@@ -143,9 +143,7 @@ Fields are aligned to the declared heating formula.
   - `building_id`
   - `apartment_id`
   - `accounting_month_id` (the month bucket used for the UI and invoices; always present)
-  - `billing_period_start` (date; declared billing period this measurement set applies to)
-  - `billing_period_end` (date; declared billing period this measurement set applies to)
-  - `measurement_date` (optional; useful if you later support multiple readings within the same billing period)
+  - `measurement_date` (date; the single date the reading was taken — the only period field needed)
   - `e_factor` (decimal; `ei`)
   - `f_factor` (decimal; `fi`)
   - `current_reading` (decimal; current month heating meter reading)
@@ -168,8 +166,7 @@ Exact fields depend on your distribution algorithm (to be provided later).
   - `building_id`
   - `apartment_id`
   - `accounting_month_id` (the month bucket used for the UI and invoices; always present)
-  - `billing_period_start` (date; declared billing period this measurement set applies to)
-  - `billing_period_end` (date; declared billing period this measurement set applies to)
+  - `measurement_date` (date; the single date the reading was taken — the only period field needed)
   - `inputs_json`
   - `current_reading` (decimal; current month hot-water meter reading)
   - `computed_heating_water_volume` (decimal; apartment hot-water volume used for splitting)

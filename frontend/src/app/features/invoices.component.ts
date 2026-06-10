@@ -1,4 +1,4 @@
-import { Component, OnInit } from '@angular/core';
+import { Component, HostListener, OnInit } from '@angular/core';
 import { NgFor, NgIf } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { MatDatepicker, MatDatepickerModule } from '@angular/material/datepicker';
@@ -8,8 +8,9 @@ import { MatInputModule } from '@angular/material/input';
 import { MonthFormatPipe } from '../core/month-format.pipe';
 import { EuroPipe } from '../core/euro.pipe';
 import { HttpClient } from '@angular/common/http';
-import { finalize } from 'rxjs';
+import { combineLatest, finalize } from 'rxjs';
 
+import { AdminModeService } from '../core/admin-mode.service';
 import { AppDataService, Invoice, Me } from '../core/app-data.service';
 import { API_BASE } from '../core/api.constants';
 
@@ -57,7 +58,10 @@ type DraftInvoiceItem = {
         </mat-form-field>
         <button class="btn btn-ghost" (click)="clearFilters()">Καθαρισμός φίλτρων</button>
         <button class="btn btn-primary" (click)="load()">Ανανέωση</button>
-        <button class="btn btn-generate action-right" *ngIf="isAdmin(me)" (click)="openGeneratePopup()">
+        <button class="btn btn-danger action-right" *ngIf="writeEnabled" (click)="recallMonth()">
+          Ανάκληση λογαριασμών μήνα
+        </button>
+        <button class="btn btn-generate" *ngIf="writeEnabled" (click)="openGeneratePopup()">
           Δημιουργία λογαριασμών
         </button>
       </div>
@@ -75,9 +79,23 @@ type DraftInvoiceItem = {
               </p>
               <p>Μήνας {{ inv.month | monthFormat }}</p>
             </div>
-            <span class="status" [class.status-paid]="isPaid(inv)" [class.status-open]="!isPaid(inv)">
-              {{ getStatusLabel(inv.status) }}
-            </span>
+            <div class="head-actions">
+              <span class="status" [class.status-paid]="isPaid(inv)" [class.status-open]="!isPaid(inv)">
+                {{ getStatusLabel(inv.status) }}
+              </span>
+              <div class="kebab-wrap">
+                <button class="kebab-btn" (click)="toggleActionMenu(inv.id, $event)" aria-label="Ενέργειες λογαριασμού">
+                  ⋮
+                </button>
+                <div class="kebab-menu" *ngIf="isActionMenuOpen(inv.id)">
+                  <button (click)="runAndClose(() => downloadInvoicePdf(inv))">Λήψη λογαριασμού PDF</button>
+                  <button *ngIf="isPaid(inv)" (click)="runAndClose(() => downloadReceipt(inv))">Λήψη απόδειξης PDF</button>
+                  <button *ngIf="writeEnabled && !isPaid(inv)" (click)="runAndClose(() => openPaymentPopup(inv))">
+                    Καταχώριση πληρωμής
+                  </button>
+                </div>
+              </div>
+            </div>
           </header>
 
           <div class="totals">
@@ -93,21 +111,6 @@ type DraftInvoiceItem = {
             <div class="summary">
               <p>Σύνολο: <strong>{{ inv.invoice_total | euro }}</strong></p>
               <p>Υπόλοιπο: <strong>{{ inv.outstanding_balance | euro }}</strong></p>
-            </div>
-            <div class="card-actions">
-              <button class="btn btn-ghost btn-sm" (click)="downloadInvoicePdf(inv)">
-                Λήψη λογαριασμού PDF
-              </button>
-              <button *ngIf="isPaid(inv)" class="btn btn-ghost btn-sm" (click)="downloadReceipt(inv)">
-                Λήψη απόδειξης PDF
-              </button>
-              <button
-                *ngIf="isAdmin(me) && !isPaid(inv)"
-                class="btn btn-secondary"
-                (click)="openPaymentPopup(inv)"
-              >
-                Καταχώριση πληρωμής
-              </button>
             </div>
           </footer>
         </article>
@@ -149,6 +152,9 @@ type DraftInvoiceItem = {
           </div>
 
           <p class="hint error" *ngIf="previewError">{{ previewError }}</p>
+          <div *ngIf="previewWarnings.length">
+            <p class="hint warning" *ngFor="let warn of previewWarnings">{{ warn }}</p>
+          </div>
           <div class="table-wrap" *ngIf="previewItems.length">
             <table>
               <thead>
@@ -297,8 +303,9 @@ type DraftInvoiceItem = {
     .invoice-grid {
       margin-top: 0.8rem;
       display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+      grid-template-columns: repeat(4, minmax(0, 1fr));
       gap: 0.8rem;
+      align-items: start;
     }
     .btn-generate {
       font-size: 0.98rem;
@@ -331,6 +338,55 @@ type DraftInvoiceItem = {
       gap: 0.6rem;
       align-items: flex-start;
     }
+    .head-actions {
+      position: relative;
+      display: flex;
+      align-items: center;
+      gap: 0.4rem;
+    }
+    .kebab-wrap {
+      position: relative;
+    }
+    .kebab-btn {
+      border: 1px solid #355080;
+      background: #132247;
+      color: #dbe7ff;
+      border-radius: 8px;
+      width: 1.9rem;
+      height: 1.9rem;
+      font-size: 1rem;
+      line-height: 1;
+      cursor: pointer;
+      display: grid;
+      place-items: center;
+    }
+    .kebab-menu {
+      position: absolute;
+      top: 2.1rem;
+      right: 0;
+      z-index: 5;
+      min-width: 210px;
+      border: 1px solid #3a4f82;
+      border-radius: 10px;
+      background: #101c3e;
+      box-shadow: 0 16px 30px rgba(6, 10, 24, 0.55);
+      padding: 0.32rem;
+      display: grid;
+      gap: 0.22rem;
+    }
+    .kebab-menu button {
+      text-align: left;
+      border: 0;
+      border-radius: 8px;
+      background: transparent;
+      color: #e2ecff;
+      padding: 0.46rem 0.55rem;
+      font-size: 0.8rem;
+      cursor: pointer;
+    }
+    .kebab-menu button:hover {
+      background: #1a2d5a;
+    }
     .card-head h3 {
       margin: 0;
       font-size: 1rem;
@@ -361,13 +417,6 @@ type DraftInvoiceItem = {
       justify-content: space-between;
       gap: 0.7rem;
       align-items: flex-end;
-    }
-    .card-actions {
-      display: flex;
-      gap: 0.45rem;
-      align-items: center;
-      flex-wrap: wrap;
-      justify-content: flex-end;
     }
     .summary p {
       margin: 0.1rem 0;
@@ -634,6 +683,9 @@ type DraftInvoiceItem = {
       flex-wrap: wrap;
     }
     @media (max-width: 900px) {
+      .invoice-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
       .payment-form {
         grid-template-columns: 1fr;
       }
@@ -643,6 +695,16 @@ type DraftInvoiceItem = {
       .card-footer {
         flex-direction: column;
         align-items: stretch;
+      }
+    }
+    @media (max-width: 1300px) {
+      .invoice-grid {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+      }
+    }
+    @media (max-width: 640px) {
+      .invoice-grid {
+        grid-template-columns: 1fr;
       }
     }
   `,
@@ -658,6 +720,7 @@ export class InvoicesComponent implements OnInit {
   currentPage = 1;
   readonly pageSize = 16;
   me: Me | null = null;
+  writeEnabled = false;
   message = '';
   loading = false;
   showPaymentPopup = false;
@@ -666,7 +729,9 @@ export class InvoicesComponent implements OnInit {
   previewLoading = false;
   generationSaving = false;
   previewError = '';
+  previewWarnings: string[] = [];
   previewItems: DraftInvoiceItem[] = [];
+  openActionMenuInvoiceId: number | null = null;
   selectedInvoice: Invoice | null = null;
   paymentForm = {
     amount: '',
@@ -678,18 +743,29 @@ export class InvoicesComponent implements OnInit {
   constructor(
     private readonly data: AppDataService,
     private readonly http: HttpClient,
+    private readonly adminMode: AdminModeService,
   ) {}
 
   ngOnInit(): void {
-    this.data.getMe().subscribe((me) => (this.me = me));
-    this.load();
+    combineLatest([this.data.getMe(), this.adminMode.adminModeActive$]).subscribe(([me]) => {
+      this.me = me;
+      this.refreshWriteEnabled();
+      this.load();
+    });
+  }
+
+  private refreshWriteEnabled(): void {
+    this.writeEnabled = this.adminMode.canManage(this.me);
   }
 
   load(): void {
     this.loading = true;
     this.message = '';
+    const url = this.writeEnabled
+      ? `${API_BASE}/api/invoices/`
+      : `${API_BASE}/api/invoices/?personal_scope=1`;
     this.http
-      .get<Invoice[]>(`${API_BASE}/api/invoices/`)
+      .get<Invoice[]>(url)
       .pipe(finalize(() => (this.loading = false)))
       .subscribe({
         next: (invoices) => {
@@ -752,10 +828,6 @@ export class InvoicesComponent implements OnInit {
       });
   }
 
-  isAdmin(me: Me | null): boolean {
-    return me?.role === 'superadmin' || me?.role === 'administrator';
-  }
-
   isPaid(invoice: Invoice): boolean {
     return Number(invoice.outstanding_balance) <= 0 || invoice.status === 'paid';
   }
@@ -802,6 +874,36 @@ export class InvoicesComponent implements OnInit {
           this.paymentSaving = false;
         },
       });
+  }
+
+  recallMonth(): void {
+    const month = this.filterExactMonth;
+    if (!month) {
+      this.message = 'Επίλεξε ακριβή μήνα στα φίλτρα για να ανακληθούν οι λογαριασμοί του.';
+      return;
+    }
+
+    const monthInvoices = this.invoices.filter((inv) => inv.month === month);
+    if (!monthInvoices.length) {
+      this.message = `Δεν υπάρχουν λογαριασμοί για τον μήνα ${month}.`;
+      return;
+    }
+    const hasPayments = monthInvoices.some((inv) => Number(inv.paid_total || 0) > 0);
+    const warning = hasPayments ? 'Θα διαγραφούν και οι καταχωρημένες πληρωμές. ' : '';
+    const confirmed = window.confirm(
+      `${warning}Να ανακληθούν και οι ${monthInvoices.length} λογαριασμοί για τον μήνα ${month};`,
+    );
+    if (!confirmed) return;
+
+    this.http.post<{ detail: string }>(`${API_BASE}/api/invoices/recall-month/`, { month, confirm: true }).subscribe({
+      next: (response) => {
+        this.message = response.detail;
+        this.load();
+      },
+      error: (error) => {
+        this.message = error?.error?.detail || 'Αποτυχία ανάκλησης λογαριασμών.';
+      },
+    });
   }
 
   downloadReceipt(invoice: Invoice): void {
@@ -879,6 +981,7 @@ export class InvoicesComponent implements OnInit {
 
   openGeneratePopup(): void {
     this.previewError = '';
+    this.previewWarnings = [];
     this.previewItems = [];
     this.showGeneratePopup = true;
   }
@@ -886,6 +989,7 @@ export class InvoicesComponent implements OnInit {
   closeGeneratePopup(): void {
     this.showGeneratePopup = false;
     this.previewError = '';
+    this.previewWarnings = [];
     this.previewItems = [];
   }
 
@@ -896,18 +1000,21 @@ export class InvoicesComponent implements OnInit {
     }
     this.previewLoading = true;
     this.previewError = '';
+    this.previewWarnings = [];
     this.http
-      .get<{ month: string; items: DraftInvoiceItem[] }>(`${API_BASE}/api/invoices/preview/?month=${this.month}`)
+      .get<{ month: string; items: DraftInvoiceItem[]; warnings?: string[] }>(`${API_BASE}/api/invoices/preview/?month=${this.month}`)
       .pipe(finalize(() => (this.previewLoading = false)))
       .subscribe({
         next: (response) => {
           this.previewItems = response.items;
+          this.previewWarnings = response.warnings || [];
           if (!this.previewItems.length) {
             this.previewError = 'Δεν προέκυψαν στοιχεία κατανομής για αυτόν τον μήνα.';
           }
         },
         error: () => {
           this.previewItems = [];
+          this.previewWarnings = [];
           this.previewError = 'Αποτυχία φόρτωσης προεπισκόπησης.';
         },
       });
@@ -965,5 +1072,24 @@ export class InvoicesComponent implements OnInit {
     const m = String(value.getMonth() + 1).padStart(2, '0');
     const d = String(value.getDate()).padStart(2, '0');
     return `${y}-${m}-${d}`;
+  }
+
+  toggleActionMenu(invoiceId: number, event?: MouseEvent): void {
+    event?.stopPropagation();
+    this.openActionMenuInvoiceId = this.openActionMenuInvoiceId === invoiceId ? null : invoiceId;
+  }
+
+  isActionMenuOpen(invoiceId: number): boolean {
+    return this.openActionMenuInvoiceId === invoiceId;
+  }
+
+  runAndClose(action: () => void): void {
+    this.openActionMenuInvoiceId = null;
+    action();
+  }
+
+  @HostListener('document:click')
+  closeActionMenuOnOutsideClick(): void {
+    this.openActionMenuInvoiceId = null;
   }
 }

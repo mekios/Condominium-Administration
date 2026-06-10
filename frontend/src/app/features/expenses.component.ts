@@ -5,6 +5,7 @@ import { NgFor, NgIf } from '@angular/common';
 import { HttpClient } from '@angular/common/http';
 import { Router } from '@angular/router';
 
+import { AdminModeService } from '../core/admin-mode.service';
 import { Me } from '../core/app-data.service';
 import { API_BASE } from '../core/api.constants';
 import { getCategoryConfig, getCategoryIconColor, getCategoryIconGlow, getDisplayLabel, getIconPath } from '../core/expense-categories';
@@ -31,10 +32,10 @@ type ExpenseItem = {
         <h2>Λίστα εξόδων</h2>
         <p>Όλα τα έξοδα ομαδοποιημένα ανά μήνα.</p>
       </div>
-      <p class="hint" *ngIf="!isAdmin(me)">Λειτουργία μόνο ανάγνωσης. Η επεξεργασία εξόδων είναι διαθέσιμη μόνο σε διαχειριστές.</p>
+      <p class="hint warning" *ngIf="!writeEnabled">Λειτουργία μόνο ανάγνωσης. Η επεξεργασία εξόδων είναι διαθέσιμη μόνο σε λειτουργία διαχειριστή.</p>
 
       <div class="actions">
-        <button class="btn btn-primary" (click)="openCreateForm()" *ngIf="isAdmin(me)">Νέο έξοδο</button>
+        <button class="btn btn-primary" (click)="openCreateForm()" *ngIf="writeEnabled">Νέο έξοδο</button>
         <button class="btn btn-ghost" (click)="loadExpenses()">Ανανέωση</button>
       </div>
       <p class="hint" *ngIf="message">{{ message }}</p>
@@ -58,13 +59,14 @@ type ExpenseItem = {
                 <th>Έναρξη περιόδου</th>
                 <th>Λήξη περιόδου</th>
                 <th>Περιγραφή</th>
+                <th *ngIf="writeEnabled">Ενέργειες</th>
               </tr>
             </thead>
             <tbody>
               <tr
                 *ngFor="let expense of group.items"
-                [class.clickable-row]="isAdmin(me)"
-                [class.readonly-row]="!isAdmin(me)"
+                [class.clickable-row]="writeEnabled"
+                [class.readonly-row]="!writeEnabled"
                 (click)="openExpense(expense.id)"
               >
                 <td>{{ expense.id }}</td>
@@ -87,6 +89,17 @@ type ExpenseItem = {
                 <td>{{ expense.affected_period_start || '-' }}</td>
                 <td>{{ expense.affected_period_end || '-' }}</td>
                 <td>{{ descriptionColumnValue(expense) }}</td>
+                <td *ngIf="writeEnabled" class="actions-cell">
+                  <button
+                    class="btn btn-danger btn-danger-icon"
+                    aria-label="Διαγραφή"
+                    (click)="deleteExpense(expense, $event)"
+                  >
+                    <svg viewBox="0 0 24 24" aria-hidden="true">
+                      <path d="M3 6h18 M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6 M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2 M10 11v6 M14 11v6" />
+                    </svg>
+                  </button>
+                </td>
               </tr>
             </tbody>
           </table>
@@ -183,6 +196,11 @@ type ExpenseItem = {
       align-items: center;
       gap: 0.65rem;
     }
+    .actions-cell {
+      white-space: nowrap;
+      vertical-align: middle;
+      text-align: center;
+    }
     .cat-icon {
       width: 1.08rem;
       height: 1.08rem;
@@ -202,6 +220,7 @@ type ExpenseItem = {
 })
 export class ExpensesComponent implements OnInit {
   me: Me | null = null;
+  writeEnabled = false;
   readonly getDisplayLabel = getDisplayLabel;
   loading = false;
   message = '';
@@ -211,15 +230,17 @@ export class ExpensesComponent implements OnInit {
   constructor(
     private readonly http: HttpClient,
     private readonly router: Router,
+    private readonly adminMode: AdminModeService,
   ) {}
 
   ngOnInit(): void {
+    this.adminMode.adminModeActive$.subscribe(() => this.refreshWriteEnabled());
     this.loadMe();
     this.loadExpenses();
   }
 
-  isAdmin(me: Me | null): boolean {
-    return me?.role === 'superadmin' || me?.role === 'administrator';
+  private refreshWriteEnabled(): void {
+    this.writeEnabled = this.adminMode.canManage(this.me);
   }
 
   loadExpenses(): void {
@@ -247,10 +268,29 @@ export class ExpensesComponent implements OnInit {
   }
 
   openExpense(expenseId: number): void {
-    if (!this.isAdmin(this.me)) {
+    if (!this.writeEnabled) {
       return;
     }
     this.router.navigateByUrl(`/app/expenses/${expenseId}`);
+  }
+
+  deleteExpense(expense: ExpenseItem, event: MouseEvent): void {
+    event.stopPropagation();
+    const confirmed = window.confirm(
+      `Να διαγραφεί το έξοδο #${expense.id} (${getDisplayLabel(expense)}, ${expense.amount}€);`,
+    );
+    if (!confirmed) return;
+
+    this.message = '';
+    this.http.delete(`${API_BASE}/api/accounting/expenses/${expense.id}/`).subscribe({
+      next: () => {
+        this.message = 'Το έξοδο διαγράφηκε.';
+        this.loadExpenses();
+      },
+      error: (error) => {
+        this.message = error?.error?.detail || 'Αποτυχία διαγραφής εξόδου.';
+      },
+    });
   }
 
   readonly getIconPath = getIconPath;
@@ -267,8 +307,14 @@ export class ExpensesComponent implements OnInit {
 
   private loadMe(): void {
     this.http.get<Me>(`${API_BASE}/api/me/`).subscribe({
-      next: (me) => (this.me = me),
-      error: () => (this.me = null),
+      next: (me) => {
+        this.me = me;
+        this.refreshWriteEnabled();
+      },
+      error: () => {
+        this.me = null;
+        this.refreshWriteEnabled();
+      },
     });
   }
 

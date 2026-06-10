@@ -33,9 +33,16 @@ type ExpenseItem = {
   template: `
     <section class="stats">
       <article class="stat-card welcome-card">
-        <p class="label">Καλώς ήρθες</p>
-        <p class="value">{{ me?.username || 'Χρήστη' }}</p>
-        <p class="sub">Παρακολούθηση οικονομικών και λογαριασμών ανά διαμέρισμα.</p>
+        <p class="welcome-kicker">Dashboard</p>
+        <h1 class="welcome-title">
+          {{ greetingPrefix }}, <span class="welcome-name">{{ me?.username || 'Χρήστη' }}</span>
+        </h1>
+        <p class="welcome-sub">
+          {{ greetingSubtitle }}
+        </p>
+        <p class="welcome-apts" *ngIf="!loading && apartmentGreetingText">
+          {{ apartmentGreetingText }}
+        </p>
       </article>
       <article class="stat-card finance-card" [class.negative]="buildingFinanceBalance < 0">
         <p class="label">Υπόλοιπο ταμείου κτιρίου</p>
@@ -132,18 +139,6 @@ type ExpenseItem = {
         <p class="hint">Δεν υπάρχουν έξοδα για τον μήνα.</p>
       </ng-template>
     </section>
-
-    <section class="panel" *ngIf="!isAdmin(me)">
-      <h2>Διαμερίσματα με πρόσβαση</h2>
-      <ul *ngIf="!loading && apartments.length; else empty">
-        <li *ngFor="let apt of apartments" class="apartment-chip">
-          <strong>{{ apt.apartment_label }}</strong> <span>{{ apt.ownership_permille }}‰</span>
-        </li>
-      </ul>
-      <ng-template #empty>
-        <p class="hint" *ngIf="!loading">Δεν υπάρχουν συνδεδεμένα διαμερίσματα για αυτόν τον χρήστη.</p>
-      </ng-template>
-    </section>
   `,
   styles: `
     .stats {
@@ -164,11 +159,50 @@ type ExpenseItem = {
     .welcome-card {
       display: flex;
       flex-direction: column;
-      justify-content: center;
+      justify-content: flex-start;
       min-height: 108px;
+      border: 0;
+      background: transparent;
+      box-shadow: none;
+      padding: 0.15rem 0.1rem 0.35rem;
     }
-    .welcome-card .value {
-      font-size: 1.25rem;
+    .welcome-kicker {
+      margin: 0;
+      font-size: 0.72rem;
+      text-transform: uppercase;
+      letter-spacing: 0.11em;
+      color: #86a5ff;
+      font-weight: 700;
+    }
+    .welcome-title {
+      margin: 0.35rem 0 0;
+      font-family: "Roboto Condensed", "Roboto", "Segoe UI", Arial, sans-serif;
+      font-size: clamp(1.36rem, 2.5vw, 2.05rem);
+      line-height: 1.08;
+      color: #f8fbff;
+      font-weight: 700;
+      letter-spacing: -0.015em;
+    }
+    .welcome-name {
+      background: linear-gradient(90deg, #8eb1ff 0%, #c39dff 55%, #7ce8ff 100%);
+      -webkit-background-clip: text;
+      background-clip: text;
+      color: transparent;
+    }
+    .welcome-sub {
+      margin: 0.45rem 0 0;
+      color: #a9bee9;
+      font-size: 0.94rem;
+      line-height: 1.55;
+      max-width: 62ch;
+      font-weight: 450;
+    }
+    .welcome-apts {
+      margin: 0.35rem 0 0;
+      color: #8ea6de;
+      font-size: 0.86rem;
+      line-height: 1.4;
+      font-weight: 500;
     }
     .finance-card {
       border-color: #2f4f8a;
@@ -231,33 +265,11 @@ type ExpenseItem = {
       margin-bottom: 1rem;
     }
     h2 { margin: 0 0 0.65rem; font-size: 1.05rem; }
-    ul { padding-left: 0; margin: 0.75rem 0 0; list-style: none; display: grid; gap: 0.45rem; }
-    ul li {
-      border: 1px solid #25355e;
-      border-radius: 10px;
-      padding: 0.5rem 0.6rem;
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-    }
-    .apartment-chip {
-      padding: 0.34rem 0.48rem;
-      border-radius: 8px;
-      font-size: 0.78rem;
-      background: #0f1833;
-    }
-    .apartment-chip strong {
-      font-size: 0.8rem;
-      font-weight: 600;
-    }
-    .apartment-chip span {
-      font-size: 0.76rem;
-      color: #a9bee9;
-    }
     .invoice-grid {
       display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+      grid-template-columns: repeat(4, minmax(0, 1fr));
       gap: 0.7rem;
+      align-items: start;
     }
     .invoice-card {
       border: 1px solid #2a3b65;
@@ -370,6 +382,15 @@ type ExpenseItem = {
     @media (max-width: 1023px) {
       .stats { grid-template-columns: 1fr; }
     }
+    @media (max-width: 1300px) {
+      .invoice-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+    }
+    @media (max-width: 900px) {
+      .invoice-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    }
+    @media (max-width: 640px) {
+      .invoice-grid { grid-template-columns: 1fr; }
+    }
   `,
 })
 export class DashboardComponent implements OnInit {
@@ -389,6 +410,8 @@ export class DashboardComponent implements OnInit {
   balanceFillPercent = 100;
   message = '';
   loading = true;
+  greetingPrefix = 'Καλημέρα';
+  greetingSubtitle = 'Επισκόπηση οικονομικών, λογαριασμών και κινήσεων της πολυκατοικίας σε μία ματιά.';
   readonly getDisplayLabel = getDisplayLabel;
   readonly getIconPath = getIconPath;
   readonly getCategoryIconColor = getCategoryIconColor;
@@ -401,11 +424,12 @@ export class DashboardComponent implements OnInit {
   ) {}
 
   ngOnInit(): void {
+    this.setGreetingByCurrentTime();
     this.loading = true;
     this.message = '';
     forkJoin({
       me: this.data.getMe(),
-      apartments: this.data.getApartments(),
+      apartments: this.data.getLinkedApartments(),
       invoices: this.http.get<Invoice[]>(`${API_BASE}/api/invoices/?personal_scope=1`),
     })
       .pipe(finalize(() => (this.loading = false)))
@@ -493,7 +517,26 @@ export class DashboardComponent implements OnInit {
     this.router.navigateByUrl('/app/analysis');
   }
 
-  isAdmin(me: Me | null): boolean {
-    return me?.role === 'superadmin' || me?.role === 'administrator';
+  get apartmentGreetingText(): string {
+    if (!this.apartments.length) return '';
+    const labels = this.apartments.map((apt) => apt.apartment_label);
+    if (labels.length === 1) return `Διαμέρισμα ${labels[0]}`;
+    return `Διαμερίσματα ${labels.join(', ')}`;
+  }
+
+  private setGreetingByCurrentTime(): void {
+    const hour = new Date().getHours();
+    if (hour >= 5 && hour < 12) {
+      this.greetingPrefix = 'Καλημέρα';
+      this.greetingSubtitle = 'Καλή αρχή! Δες τις σημερινές οικονομικές εκκρεμότητες με μια ματιά.';
+      return;
+    }
+    if (hour >= 12 && hour < 18) {
+      this.greetingPrefix = 'Καλό μεσημέρι';
+      this.greetingSubtitle = 'Γρήγορος έλεγχος λογαριασμών και πληρωμών για πλήρη εικόνα.';
+      return;
+    }
+    this.greetingPrefix = 'Καλησπέρα';
+    this.greetingSubtitle = 'Ολοκλήρωσε την ημέρα με μια γρήγορη επισκόπηση υπολοίπων και κινήσεων.';
   }
 }

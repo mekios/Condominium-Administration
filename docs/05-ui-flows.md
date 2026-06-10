@@ -140,7 +140,7 @@ UI behavior:
   - previous hot-water reading (read-only)
   - current hot-water reading (input)
   - computed hot-water units (read-only, diff)
-- `billing_period_start` and `billing_period_end` are declared once per month form
+- a single `measurement_date` identifies the entry (no separate billing period)
 
 Rules:
 - No separate “heating page” and “hot-water page”; both commodities are entered together.

@@ -46,12 +46,20 @@ export const routes: Routes = [
         loadComponent: () => import('./features/analysis.component').then((m) => m.AnalysisComponent),
       },
       {
+        path: 'voting',
+        loadComponent: () => import('./features/voting.component').then((m) => m.VotingComponent),
+      },
+      {
+        path: 'voting/:id',
+        loadComponent: () => import('./features/voting-detail.component').then((m) => m.VotingDetailComponent),
+      },
+      {
         path: 'profile',
         loadComponent: () => import('./features/profile.component').then((m) => m.ProfileComponent),
       },
-      { path: '', pathMatch: 'full', redirectTo: 'invoices' },
+      { path: '', pathMatch: 'full', redirectTo: 'dashboard' },
     ],
   },
   { path: 'dashboard', pathMatch: 'full', redirectTo: 'app/dashboard' },
-  { path: '', pathMatch: 'full', redirectTo: 'app/invoices' },
+  { path: '', pathMatch: 'full', redirectTo: 'app/dashboard' },
 ];

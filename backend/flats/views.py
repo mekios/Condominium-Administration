@@ -22,6 +22,7 @@ from rest_framework.response import Response
 from .models import (
     Apartment,
     ApartmentUser,
+    DesignatedVoter,
     ExpenseItem,
     HeatedWaterMeasurementInput,
     HeatingMeasurementInput,
@@ -29,10 +30,13 @@ from .models import (
     InvoiceDocument,
     NotificationDispatch,
     PaymentRecord,
+    Vote,
+    VoteSession,
 )
 from .serializers import (
     ApartmentHeatingFactorsSerializer,
     ApartmentSerializer,
+    DesignatedVoterAssignSerializer,
     ExpenseItemSerializer,
     HeatedWaterBulkUpsertSerializer,
     HeatingMeasurementInputSerializer,
@@ -43,6 +47,9 @@ from .serializers import (
     InvoiceSerializer,
     PaymentRecordSerializer,
     MonthlyMeasurementUpsertSerializer,
+    VoteSerializer,
+    VoteSessionSerializer,
+    VoteSubmitSerializer,
 )
 
 
@@ -52,6 +59,72 @@ def q2(value: Decimal) -> Decimal:
 
 def q1(value: Decimal) -> Decimal:
     return value.quantize(Decimal("0.1"), rounding=ROUND_HALF_UP)
+
+
+def _recalculate_invoice_settlement(invoice: Invoice) -> None:
+    paid_total = sum((Decimal(payment.amount) for payment in invoice.payments.all()), Decimal("0.00"))
+    invoice.paid_total = q2(paid_total)
+    invoice.outstanding_balance = q2(Decimal(invoice.invoice_total) - paid_total)
+    if invoice.outstanding_balance <= Decimal("0") and invoice.paid_total > Decimal("0"):
+        invoice.status = Invoice.Status.PAID
+    elif invoice.status != Invoice.Status.DRAFT:
+        invoice.status = Invoice.Status.ISSUED
+    invoice.save(update_fields=["paid_total", "outstanding_balance", "status", "updated_at"])
+
+
+def _allocate_amount_by_weights(total_amount: Decimal, weights: dict[int, Decimal]) -> dict[int, Decimal]:
+    allocations = {apartment_id: Decimal("0.00") for apartment_id in weights.keys()}
+    if not weights:
+        return allocations
+    sum_weights = sum(weights.values(), Decimal("0"))
+    if sum_weights <= Decimal("0"):
+        return allocations
+
+    raw_allocations: dict[int, Decimal] = {}
+    for apartment_id, weight in weights.items():
+        if weight <= Decimal("0"):
+            raw_allocations[apartment_id] = Decimal("0")
+            continue
+        raw_allocations[apartment_id] = total_amount * (weight / sum_weights)
+
+    for apartment_id, raw_value in raw_allocations.items():
+        allocations[apartment_id] = q2(raw_value)
+
+    remainder = q2(total_amount - sum(allocations.values(), Decimal("0")))
+    if remainder == Decimal("0"):
+        return allocations
+
+    cent = Decimal("0.01")
+    max_steps = int(abs(remainder / cent))
+    if max_steps == 0:
+        return allocations
+
+    if remainder > Decimal("0"):
+        ordered_ids = sorted(
+            raw_allocations.keys(),
+            key=lambda apartment_id: (raw_allocations[apartment_id] - allocations[apartment_id]),
+            reverse=True,
+        )
+        step = cent
+    else:
+        ordered_ids = sorted(
+            raw_allocations.keys(),
+            key=lambda apartment_id: (raw_allocations[apartment_id] - allocations[apartment_id]),
+        )
+        step = -cent
+
+    if not ordered_ids:
+        return allocations
+
+    idx = 0
+    for _ in range(max_steps):
+        apartment_id = ordered_ids[idx % len(ordered_ids)]
+        next_value = allocations[apartment_id] + step
+        if next_value >= Decimal("0"):
+            allocations[apartment_id] = q2(next_value)
+        idx += 1
+
+    return allocations
 
 
 def month_after(month: str) -> str:
@@ -400,6 +473,60 @@ def _send_receipt_email(invoice: Invoice, payment: PaymentRecord, receipt_filena
     return dispatch
 
 
+def _send_invoice_email(invoice: Invoice, invoice_filename: str, invoice_pdf: bytes, *, force=False):
+    if not force:
+        already_sent = NotificationDispatch.objects.filter(
+            invoice=invoice,
+            payment__isnull=True,
+            notification_type=NotificationDispatch.NotificationType.INVOICE_MONTHLY,
+            status=NotificationDispatch.Status.SENT,
+        ).exists()
+        if already_sent:
+            return NotificationDispatch.objects.create(
+                invoice=invoice,
+                notification_type=NotificationDispatch.NotificationType.INVOICE_MONTHLY,
+                status=NotificationDispatch.Status.SKIPPED,
+                error_message="Η μηνιαία αποστολή έχει ήδη ολοκληρωθεί για αυτόν τον λογαριασμό.",
+            )
+
+    recipient_emails = list(
+        invoice.apartment.memberships.exclude(user__email="").values_list("user__email", flat=True).distinct()
+    )
+    if not recipient_emails:
+        return NotificationDispatch.objects.create(
+            invoice=invoice,
+            notification_type=NotificationDispatch.NotificationType.INVOICE_MONTHLY,
+            status=NotificationDispatch.Status.SKIPPED,
+            error_message="Δεν υπάρχουν email παραληπτών για το διαμέρισμα.",
+        )
+
+    subject = f"Μηνιαίος λογαριασμός {invoice.month} - {invoice.apartment.apartment_label}"
+    body = (
+        f"Επισυνάπτεται ο μηνιαίος λογαριασμός για το διαμέρισμα {invoice.apartment.apartment_label}.\n"
+        f"Μήνας: {invoice.month}\n"
+        f"Σύνολο: {invoice.invoice_total}\n"
+        f"Υπόλοιπο: {invoice.outstanding_balance}\n"
+    )
+    dispatch = NotificationDispatch.objects.create(
+        invoice=invoice,
+        notification_type=NotificationDispatch.NotificationType.INVOICE_MONTHLY,
+        recipient_email=",".join(recipient_emails),
+        status=NotificationDispatch.Status.QUEUED,
+    )
+    try:
+        message = EmailMessage(subject=subject, body=body, to=recipient_emails)
+        message.attach(invoice_filename, invoice_pdf, "application/pdf")
+        message.send(fail_silently=False)
+        dispatch.status = NotificationDispatch.Status.SENT
+        dispatch.sent_at = timezone.now()
+        dispatch.save(update_fields=["status", "sent_at"])
+    except Exception as exc:  # pragma: no cover
+        dispatch.status = NotificationDispatch.Status.FAILED
+        dispatch.error_message = str(exc)
+        dispatch.save(update_fields=["status", "error_message"])
+    return dispatch
+
+
 def _measurement_context_for_expense(building_apartments, expense: ExpenseItem, month: str):
     apartment_ids = [apartment.id for apartment in building_apartments]
     heating_qs = HeatingMeasurementInput.objects.filter(apartment_id__in=apartment_ids)
@@ -511,6 +638,42 @@ def _measurement_context_for_expense(building_apartments, expense: ExpenseItem, 
     }, None
 
 
+def _invoice_generation_warnings(month: str, apartments, rows) -> list[str]:
+    warnings: list[str] = []
+    apartments_by_building: dict[int, list[Apartment]] = {}
+    for apartment in apartments:
+        apartments_by_building.setdefault(apartment.building_id, []).append(apartment)
+
+    expenses_by_building: dict[int, list[ExpenseItem]] = {}
+    for expense in ExpenseItem.objects.filter(month=month):
+        expenses_by_building.setdefault(expense.building_id, []).append(expense)
+
+    for building_id, building_apartments in apartments_by_building.items():
+        expenses = expenses_by_building.get(building_id, [])
+        has_gas_heating = any(exp.expense_category == ExpenseItem.Category.GAS_HEATING for exp in expenses)
+        has_water_hw = any(exp.expense_category == ExpenseItem.Category.WATER_HW_CONSUMPTION for exp in expenses)
+        has_gas_hw = any(exp.expense_category == ExpenseItem.Category.GAS_HW_CONSUMPTION for exp in expenses)
+
+        heating_total = sum(rows[apt.id]["heating_radiators_total"] for apt in building_apartments)
+        water_total = sum(rows[apt.id]["water_consumption_total"] for apt in building_apartments)
+        hw_energy_total = sum(rows[apt.id]["heated_water_energy_total"] for apt in building_apartments)
+
+        if has_gas_heating and q2(heating_total) == Decimal("0.00"):
+            warnings.append(
+                f"Μήνας {month}: Δεν κατανέμεται το φυσικό αέριο θέρμανσης για κτίριο {building_id} (μηδενικές/ελλιπείς μετρήσεις)."
+            )
+        if has_water_hw and q2(water_total) == Decimal("0.00"):
+            warnings.append(
+                f"Μήνας {month}: Δεν κατανέμεται το κόστος κατανάλωσης ζεστού νερού για κτίριο {building_id} (μηδενικές/ελλιπείς μετρήσεις)."
+            )
+        if has_gas_hw and q2(hw_energy_total) == Decimal("0.00"):
+            warnings.append(
+                f"Μήνας {month}: Δεν κατανέμεται το φυσικό αέριο ζεστού νερού για κτίριο {building_id} (μηδενικές/ελλιπείς μετρήσεις)."
+            )
+
+    return warnings
+
+
 def _calculate_invoice_rows(month: str):
     apartments = list(Apartment.objects.select_related("building").all().order_by("unit_code"))
     if not apartments:
@@ -575,33 +738,43 @@ def _calculate_invoice_rows(month: str):
                 context = None
 
             expense_amount = Decimal(expense.amount)
-            for apartment in building_apartments:
-                ownership_fraction = Decimal(apartment.ownership_permille) / Decimal("1000")
-                if expense.expense_category == ExpenseItem.Category.GAS_HEATING:
-                    radiator_share_map = context["radiator_share_map"]
-                    rows[apartment.id]["heating_radiators_total"] += expense_amount * radiator_share_map.get(
-                        apartment.id, Decimal("0")
-                    )
-                elif expense.expense_category == ExpenseItem.Category.WATER_HW_CONSUMPTION:
-                    volume_map = context["volume_map"]
-                    total_volume = context["total_volume"]
-                    if total_volume > Decimal("0"):
-                        rows[apartment.id]["water_consumption_total"] += expense_amount * (
-                            volume_map.get(apartment.id, Decimal("0")) / total_volume
-                        )
-                elif expense.expense_category == ExpenseItem.Category.GAS_HW_CONSUMPTION:
-                    volume_map = context["volume_map"]
-                    total_volume = context["total_volume"]
-                    if total_volume > Decimal("0"):
-                        rows[apartment.id]["heated_water_energy_total"] += expense_amount * (
-                            volume_map.get(apartment.id, Decimal("0")) / total_volume
-                        )
-                elif expense.expense_category in recurring_categories:
-                    rows[apartment.id]["common_recurring_total"] += expense_amount * ownership_fraction
-                elif expense.expense_category in non_recurring_categories:
-                    rows[apartment.id]["common_non_recurring_total"] += expense_amount * ownership_fraction
-                elif expense.expense_category in owners_only_categories:
-                    rows[apartment.id]["owners_only_total"] += expense_amount * ownership_fraction
+            weights: dict[int, Decimal] | None = None
+            target_key: str | None = None
+            if expense.expense_category == ExpenseItem.Category.GAS_HEATING:
+                weights = {apt.id: context["radiator_share_map"].get(apt.id, Decimal("0")) for apt in building_apartments}
+                target_key = "heating_radiators_total"
+            elif expense.expense_category == ExpenseItem.Category.WATER_HW_CONSUMPTION:
+                weights = {apt.id: context["volume_map"].get(apt.id, Decimal("0")) for apt in building_apartments}
+                target_key = "water_consumption_total"
+            elif expense.expense_category == ExpenseItem.Category.GAS_HW_CONSUMPTION:
+                weights = {apt.id: context["volume_map"].get(apt.id, Decimal("0")) for apt in building_apartments}
+                target_key = "heated_water_energy_total"
+
+            if weights is not None and target_key is not None:
+                allocations = _allocate_amount_by_weights(expense_amount, weights)
+                for apartment in building_apartments:
+                    rows[apartment.id][target_key] += allocations.get(apartment.id, Decimal("0.00"))
+            elif expense.expense_category in recurring_categories:
+                ownership_weights = {
+                    apartment.id: Decimal(apartment.ownership_permille) / Decimal("1000") for apartment in building_apartments
+                }
+                allocations = _allocate_amount_by_weights(expense_amount, ownership_weights)
+                for apartment in building_apartments:
+                    rows[apartment.id]["common_recurring_total"] += allocations.get(apartment.id, Decimal("0.00"))
+            elif expense.expense_category in non_recurring_categories:
+                ownership_weights = {
+                    apartment.id: Decimal(apartment.ownership_permille) / Decimal("1000") for apartment in building_apartments
+                }
+                allocations = _allocate_amount_by_weights(expense_amount, ownership_weights)
+                for apartment in building_apartments:
+                    rows[apartment.id]["common_non_recurring_total"] += allocations.get(apartment.id, Decimal("0.00"))
+            elif expense.expense_category in owners_only_categories:
+                ownership_weights = {
+                    apartment.id: Decimal(apartment.ownership_permille) / Decimal("1000") for apartment in building_apartments
+                }
+                allocations = _allocate_amount_by_weights(expense_amount, ownership_weights)
+                for apartment in building_apartments:
+                    rows[apartment.id]["owners_only_total"] += allocations.get(apartment.id, Decimal("0.00"))
 
     return (apartments, rows), None
 
@@ -612,9 +785,14 @@ class ApartmentViewSet(viewsets.ReadOnlyModelViewSet):
 
     def get_queryset(self):
         user = self.request.user
-        if user.role in ("superadmin", "administrator"):
-            return Apartment.objects.select_related("building").all().order_by("unit_code")
-        return Apartment.objects.select_related("building").filter(memberships__user=user).distinct().order_by("unit_code")
+        queryset = Apartment.objects.select_related("building")
+        admin_actions = ("heating_factors", "designated_voter")
+        if self.action in admin_actions and user.role in ("superadmin", "administrator"):
+            return queryset.all().order_by("unit_code")
+        all_scope = self.request.query_params.get("all")
+        if self.action == "list" and all_scope in ("1", "true", "yes") and user.role in ("superadmin", "administrator"):
+            return queryset.all().order_by("unit_code")
+        return queryset.filter(memberships__user=user).distinct().order_by("unit_code")
 
     @action(methods=["patch"], detail=True, url_path="heating-factors")
     def heating_factors(self, request, pk=None):
@@ -628,6 +806,33 @@ class ApartmentViewSet(viewsets.ReadOnlyModelViewSet):
         apartment.save(update_fields=["heating_e_factor", "heating_f_factor", "updated_at"])
         return Response(ApartmentSerializer(apartment).data, status=status.HTTP_200_OK)
 
+    @action(methods=["put"], detail=True, url_path="designated-voter")
+    def designated_voter(self, request, pk=None):
+        if request.user.role != "superadmin":
+            return Response({"detail": "Απαγορεύεται."}, status=status.HTTP_403_FORBIDDEN)
+        apartment = self.get_object()
+        serializer = DesignatedVoterAssignSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        voter_user_id = serializer.validated_data["voter_user_id"]
+        is_member = ApartmentUser.objects.filter(apartment=apartment, user_id=voter_user_id).exists()
+        if not is_member:
+            return Response(
+                {"detail": "Ο ορισμένος ψηφοφόρος πρέπει να είναι μέλος του διαμερίσματος."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        designated, _ = DesignatedVoter.objects.update_or_create(
+            apartment=apartment,
+            defaults={"voter_user_id": voter_user_id, "effective_from": timezone.now()},
+        )
+        return Response(
+            {
+                "apartment_id": apartment.id,
+                "voter_user_id": designated.voter_user_id,
+                "effective_from": designated.effective_from,
+            },
+            status=status.HTTP_200_OK,
+        )
+
 
 class AdminWriteRequiredMixin:
     def is_admin_write(self):
@@ -640,6 +845,13 @@ def _visible_apartments_for_measurements(user):
         return apartments.order_by("unit_code")
     user_building_ids = ApartmentUser.objects.filter(user=user).values_list("apartment__building_id", flat=True)
     return apartments.filter(building_id__in=user_building_ids).distinct().order_by("unit_code")
+
+
+def _measurement_date_locked(apartment_ids, measurement_date) -> bool:
+    """A measurement date is locked for edits once its month has been used in an
+    expense allocation, i.e. invoices have been generated for that month."""
+    month = measurement_date.strftime("%Y-%m")
+    return Invoice.objects.filter(month=month, apartment_id__in=apartment_ids).exists()
 
 
 class HeatingMeasurementInputViewSet(AdminWriteRequiredMixin, viewsets.ModelViewSet):
@@ -671,6 +883,59 @@ class HeatingMeasurementInputViewSet(AdminWriteRequiredMixin, viewsets.ModelView
             return Response({"detail": "Απαγορεύεται."}, status=status.HTTP_403_FORBIDDEN)
         return super().partial_update(request, *args, **kwargs)
 
+    def destroy(self, request, *args, **kwargs):
+        if not self.is_admin_write():
+            return Response({"detail": "Απαγορεύεται."}, status=status.HTTP_403_FORBIDDEN)
+        return super().destroy(request, *args, **kwargs)
+
+    @action(methods=["delete"], detail=False, url_path="by-date")
+    def delete_by_date(self, request):
+        if not self.is_admin_write():
+            return Response({"detail": "Απαγορεύεται."}, status=status.HTTP_403_FORBIDDEN)
+
+        measurement_date_str = request.query_params.get("measurement_date")
+        if not measurement_date_str:
+            return Response({"detail": "Λείπει παράμετρος measurement_date."}, status=status.HTTP_400_BAD_REQUEST)
+        try:
+            measurement_date = date.fromisoformat(measurement_date_str)
+        except ValueError:
+            return Response({"detail": "Μη έγκυρη ημερομηνία."}, status=status.HTTP_400_BAD_REQUEST)
+
+        apartments = _visible_apartments_for_measurements(request.user)
+        apartment_ids = list(apartments.values_list("id", flat=True))
+        month = measurement_date.strftime("%Y-%m")
+
+        if Invoice.objects.filter(month=month, apartment_id__in=apartment_ids, paid_total__gt=0).exists():
+            return Response(
+                {"detail": "Δεν επιτρέπεται διαγραφή· υπάρχουν λογαριασμοί του μήνα με καταχωρημένες πληρωμές."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        warnings = []
+        if Invoice.objects.filter(month=month, apartment_id__in=apartment_ids).exists():
+            warnings.append("Υπάρχουν εκδομένοι λογαριασμοί για τον μήνα χωρίς πληρωμές.")
+
+        with transaction.atomic():
+            heating_deleted, _ = HeatingMeasurementInput.objects.filter(
+                apartment_id__in=apartment_ids,
+                measurement_date=measurement_date,
+            ).delete()
+            water_deleted, _ = HeatedWaterMeasurementInput.objects.filter(
+                apartment_id__in=apartment_ids,
+                measurement_date=measurement_date,
+            ).delete()
+
+        return Response(
+            {
+                "detail": f"Οι μετρήσεις της ημερομηνίας {measurement_date} διαγράφηκαν.",
+                "measurement_date": measurement_date.isoformat(),
+                "heating_deleted": heating_deleted,
+                "heated_water_deleted": water_deleted,
+                "warnings": warnings,
+            },
+            status=status.HTTP_200_OK,
+        )
+
     @action(methods=["get"], detail=False, url_path="dates")
     def dates(self, request):
         user = request.user
@@ -699,6 +964,7 @@ class HeatingMeasurementInputViewSet(AdminWriteRequiredMixin, viewsets.ModelView
                     "heating_entries": heating_count,
                     "heated_water_entries": water_count,
                     "apartments_total": len(apartment_ids),
+                    "locked": _measurement_date_locked(apartment_ids, measurement_date),
                 }
             )
 
@@ -753,9 +1019,14 @@ class HeatingMeasurementInputViewSet(AdminWriteRequiredMixin, viewsets.ModelView
         measurement_date = request.query_params.get("measurement_date")
         if not measurement_date:
             return Response({"detail": "Λείπει παράμετρος measurement_date."}, status=status.HTTP_400_BAD_REQUEST)
+        try:
+            measurement_date_obj = date.fromisoformat(measurement_date)
+        except ValueError:
+            return Response({"detail": "Μη έγκυρη ημερομηνία."}, status=status.HTTP_400_BAD_REQUEST)
 
         user = request.user
         apartments = _visible_apartments_for_measurements(user)
+        apartment_ids = list(apartments.values_list("id", flat=True))
 
         heating_map = {
             item.apartment_id: item
@@ -793,7 +1064,14 @@ class HeatingMeasurementInputViewSet(AdminWriteRequiredMixin, viewsets.ModelView
                     "heated_water_units_counted": str(water_item.computed_heating_water_volume if water_item else ""),
                 }
             )
-        return Response({"measurement_date": measurement_date, "rows": rows}, status=status.HTTP_200_OK)
+        return Response(
+            {
+                "measurement_date": measurement_date,
+                "locked": _measurement_date_locked(apartment_ids, measurement_date_obj),
+                "rows": rows,
+            },
+            status=status.HTTP_200_OK,
+        )
 
     @action(methods=["post"], detail=False, url_path="monthly-upsert")
     def monthly_upsert(self, request):
@@ -814,6 +1092,15 @@ class HeatingMeasurementInputViewSet(AdminWriteRequiredMixin, viewsets.ModelView
         if missing_ids:
             return Response(
                 {"detail": f"Μη έγκυρα αναγνωριστικά διαμερισμάτων: {missing_ids}"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if _measurement_date_locked(apartment_ids, data["measurement_date"]):
+            return Response(
+                {
+                    "detail": "Δεν επιτρέπεται επεξεργασία· οι μετρήσεις του μήνα έχουν χρησιμοποιηθεί σε "
+                    "κατανομή εξόδων (υπάρχουν λογαριασμοί). Ανακαλέστε πρώτα τους λογαριασμούς του μήνα."
+                },
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
@@ -869,8 +1156,6 @@ class HeatingMeasurementInputViewSet(AdminWriteRequiredMixin, viewsets.ModelView
                     )
 
                 heating_defaults = {
-                    "billing_period_start": data["billing_period_start"],
-                    "billing_period_end": data["billing_period_end"],
                     "e_factor": e,
                     "f_factor": f,
                     "current_reading": current_heating_reading,
@@ -885,8 +1170,6 @@ class HeatingMeasurementInputViewSet(AdminWriteRequiredMixin, viewsets.ModelView
                 )
 
                 water_defaults = {
-                    "billing_period_start": data["billing_period_start"],
-                    "billing_period_end": data["billing_period_end"],
                     "current_reading": current_water_reading,
                     "computed_heating_water_volume": water_units,
                     "created_by_user": request.user,
@@ -951,8 +1234,6 @@ class HeatingMeasurementInputViewSet(AdminWriteRequiredMixin, viewsets.ModelView
                 e = Decimal(apartment.heating_e_factor)
                 f = Decimal(apartment.heating_f_factor)
                 defaults = {
-                    "billing_period_start": data["billing_period_start"],
-                    "billing_period_end": data["billing_period_end"],
                     "e_factor": e,
                     "f_factor": f,
                     "units_counted": q1(Decimal(row["units_counted"])),
@@ -1009,6 +1290,11 @@ class HeatedWaterMeasurementInputViewSet(AdminWriteRequiredMixin, viewsets.Model
             return Response({"detail": "Απαγορεύεται."}, status=status.HTTP_403_FORBIDDEN)
         return super().partial_update(request, *args, **kwargs)
 
+    def destroy(self, request, *args, **kwargs):
+        if not self.is_admin_write():
+            return Response({"detail": "Απαγορεύεται."}, status=status.HTTP_403_FORBIDDEN)
+        return super().destroy(request, *args, **kwargs)
+
     @action(methods=["post"], detail=False, url_path="bulk-upsert")
     def bulk_upsert(self, request):
         if not self.is_admin_write():
@@ -1036,8 +1322,6 @@ class HeatedWaterMeasurementInputViewSet(AdminWriteRequiredMixin, viewsets.Model
             for row in rows:
                 apartment = apartments[row["apartment_id"]]
                 defaults = {
-                    "billing_period_start": data["billing_period_start"],
-                    "billing_period_end": data["billing_period_end"],
                     "inputs_json": row.get("inputs_json", {}),
                     "computed_heating_water_volume": q1(Decimal(row["computed_heating_water_volume"])),
                     "created_by_user": request.user,
@@ -1092,6 +1376,11 @@ class ExpenseItemViewSet(AdminWriteRequiredMixin, viewsets.ModelViewSet):
         if not self.is_admin_write():
             return Response({"detail": "Απαγορεύεται."}, status=status.HTTP_403_FORBIDDEN)
         return super().partial_update(request, *args, **kwargs)
+
+    def destroy(self, request, *args, **kwargs):
+        if not self.is_admin_write():
+            return Response({"detail": "Απαγορεύεται."}, status=status.HTTP_403_FORBIDDEN)
+        return super().destroy(request, *args, **kwargs)
 
 
 class InvoiceViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, viewsets.GenericViewSet):
@@ -1163,7 +1452,8 @@ class InvoiceViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, viewsets.
                 }
             )
 
-        return Response({"month": month, "items": preview_items}, status=status.HTTP_200_OK)
+        warnings = _invoice_generation_warnings(month, apartments, rows)
+        return Response({"month": month, "items": preview_items, "warnings": warnings}, status=status.HTTP_200_OK)
 
     @action(methods=["get"], detail=False, url_path="analysis-share")
     def analysis_share(self, request):
@@ -1216,6 +1506,8 @@ class InvoiceViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, viewsets.
         apartments, rows = result
 
         with transaction.atomic():
+            created_count = 0
+            updated_count = 0
             for apartment in apartments:
                 data = rows[apartment.id]
                 invoice_total = q2(
@@ -1227,7 +1519,11 @@ class InvoiceViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, viewsets.
                     + data["owners_only_total"]
                 )
 
-                invoice, _created = Invoice.objects.get_or_create(apartment=apartment, month=month)
+                invoice, created = Invoice.objects.get_or_create(apartment=apartment, month=month)
+                if created:
+                    created_count += 1
+                else:
+                    updated_count += 1
                 invoice.heating_radiators_total = q2(data["heating_radiators_total"])
                 invoice.heated_water_energy_total = q2(data["heated_water_energy_total"])
                 invoice.water_consumption_total = q2(data["water_consumption_total"])
@@ -1242,7 +1538,172 @@ class InvoiceViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, viewsets.
                 invoice.issued_at = timezone.now()
                 invoice.save()
 
-        return Response({"detail": f"Οι λογαριασμοί δημιουργήθηκαν για τον μήνα {month}."}, status=status.HTTP_200_OK)
+        warnings = _invoice_generation_warnings(month, apartments, rows)
+        return Response(
+            {
+                "detail": f"Οι λογαριασμοί δημιουργήθηκαν για τον μήνα {month}.",
+                "month": month,
+                "created": created_count,
+                "updated": updated_count,
+                "warnings": warnings,
+            },
+            status=status.HTTP_200_OK,
+        )
+
+    @action(methods=["post"], detail=False, url_path="send-monthly-invoices")
+    def send_monthly_invoices(self, request):
+        if request.user.role not in ("superadmin", "administrator"):
+            return Response({"detail": "Απαγορεύεται."}, status=status.HTTP_403_FORBIDDEN)
+
+        input_serializer = InvoiceGenerateSerializer(data=request.data)
+        input_serializer.is_valid(raise_exception=True)
+        month = input_serializer.validated_data["month"]
+        force = bool(request.data.get("force", False))
+
+        invoices = list(
+            Invoice.objects.select_related("apartment")
+            .filter(month=month, status__in=[Invoice.Status.ISSUED, Invoice.Status.PAID])
+            .order_by("apartment__unit_code")
+        )
+        if not invoices:
+            return Response({"detail": "Δεν βρέθηκαν εκδομένοι λογαριασμοί για τον μήνα."}, status=status.HTTP_400_BAD_REQUEST)
+
+        sent = 0
+        failed = 0
+        skipped = 0
+        for invoice in invoices:
+            existing_doc = (
+                invoice.documents.filter(document_type=InvoiceDocument.DocumentType.INVOICE, payment__isnull=True)
+                .order_by("-created_at")
+                .first()
+            )
+            if existing_doc:
+                invoice_filename = existing_doc.file_name
+                invoice_pdf = bytes(existing_doc.content)
+            else:
+                invoice_filename, invoice_pdf = _create_invoice_pdf(invoice)
+                InvoiceDocument.objects.create(
+                    invoice=invoice,
+                    payment=None,
+                    document_type=InvoiceDocument.DocumentType.INVOICE,
+                    file_name=invoice_filename,
+                    mime_type="application/pdf",
+                    content=invoice_pdf,
+                )
+
+            dispatch = _send_invoice_email(invoice, invoice_filename, invoice_pdf, force=force)
+            if dispatch.status == NotificationDispatch.Status.SENT:
+                sent += 1
+            elif dispatch.status == NotificationDispatch.Status.FAILED:
+                failed += 1
+            else:
+                skipped += 1
+
+        return Response(
+            {
+                "detail": "Η αποστολή μηνιαίων λογαριασμών ολοκληρώθηκε.",
+                "month": month,
+                "total": len(invoices),
+                "sent": sent,
+                "failed": failed,
+                "skipped": skipped,
+            },
+            status=status.HTTP_200_OK,
+        )
+
+    @action(methods=["post"], detail=False, url_path="retry-failed-notifications")
+    def retry_failed_notifications(self, request):
+        if request.user.role not in ("superadmin", "administrator"):
+            return Response({"detail": "Απαγορεύεται."}, status=status.HTTP_403_FORBIDDEN)
+
+        month = request.data.get("month")
+        notification_type = request.data.get("notification_type")
+        dispatch_id = request.data.get("dispatch_id")
+        dispatches = NotificationDispatch.objects.select_related("invoice", "payment", "invoice__apartment").filter(
+            status=NotificationDispatch.Status.FAILED
+        )
+        if month:
+            dispatches = dispatches.filter(invoice__month=month)
+        if notification_type:
+            dispatches = dispatches.filter(notification_type=notification_type)
+        if dispatch_id:
+            dispatches = dispatches.filter(id=dispatch_id)
+        dispatches = list(dispatches.order_by("created_at"))
+
+        sent = 0
+        failed = 0
+        skipped = 0
+        retried = 0
+
+        for dispatch in dispatches:
+            retried += 1
+            invoice = dispatch.invoice
+            if dispatch.notification_type == NotificationDispatch.NotificationType.RECEIPT_PAID:
+                payment = dispatch.payment or invoice.payments.order_by("-created_at").first()
+                if not payment:
+                    skipped += 1
+                    continue
+                doc = (
+                    invoice.documents.filter(payment=payment, document_type=InvoiceDocument.DocumentType.RECEIPT)
+                    .order_by("-created_at")
+                    .first()
+                )
+                if doc:
+                    receipt_filename = doc.file_name
+                    receipt_pdf = bytes(doc.content)
+                else:
+                    receipt_filename, receipt_pdf = _create_receipt_pdf(invoice, payment)
+                    InvoiceDocument.objects.create(
+                        invoice=invoice,
+                        payment=payment,
+                        document_type=InvoiceDocument.DocumentType.RECEIPT,
+                        file_name=receipt_filename,
+                        mime_type="application/pdf",
+                        content=receipt_pdf,
+                    )
+                retried_dispatch = _send_receipt_email(invoice, payment, receipt_filename, receipt_pdf, force=True)
+            elif dispatch.notification_type == NotificationDispatch.NotificationType.INVOICE_MONTHLY:
+                invoice_doc = (
+                    invoice.documents.filter(document_type=InvoiceDocument.DocumentType.INVOICE, payment__isnull=True)
+                    .order_by("-created_at")
+                    .first()
+                )
+                if invoice_doc:
+                    invoice_filename = invoice_doc.file_name
+                    invoice_pdf = bytes(invoice_doc.content)
+                else:
+                    invoice_filename, invoice_pdf = _create_invoice_pdf(invoice)
+                    InvoiceDocument.objects.create(
+                        invoice=invoice,
+                        payment=None,
+                        document_type=InvoiceDocument.DocumentType.INVOICE,
+                        file_name=invoice_filename,
+                        mime_type="application/pdf",
+                        content=invoice_pdf,
+                    )
+                retried_dispatch = _send_invoice_email(invoice, invoice_filename, invoice_pdf, force=True)
+            else:
+                skipped += 1
+                continue
+
+            if retried_dispatch.status == NotificationDispatch.Status.SENT:
+                sent += 1
+            elif retried_dispatch.status == NotificationDispatch.Status.FAILED:
+                failed += 1
+            else:
+                skipped += 1
+
+        return Response(
+            {
+                "detail": "Ο επανέλεγχος αποτυχημένων ειδοποιήσεων ολοκληρώθηκε.",
+                "month": month or "",
+                "retried": retried,
+                "sent": sent,
+                "failed": failed,
+                "skipped": skipped,
+            },
+            status=status.HTTP_200_OK,
+        )
 
     @action(methods=["post"], detail=True, url_path="mark-paid")
     def mark_paid(self, request, pk=None):
@@ -1372,8 +1833,47 @@ class InvoiceViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, viewsets.
         response["Content-Disposition"] = f'attachment; filename="{receipt_filename}"'
         return response
 
+    @action(methods=["post"], detail=False, url_path="recall-month")
+    def recall_month(self, request):
+        if request.user.role not in ("superadmin", "administrator"):
+            return Response({"detail": "Απαγορεύεται."}, status=status.HTTP_403_FORBIDDEN)
+        month = request.data.get("month")
+        if not month:
+            return Response({"detail": "Λείπει παράμετρος month."}, status=status.HTTP_400_BAD_REQUEST)
+        if not request.data.get("confirm"):
+            return Response({"detail": "Απαιτείται επιβεβαίωση (confirm=true)."}, status=status.HTTP_400_BAD_REQUEST)
 
-class PaymentRecordViewSet(AdminWriteRequiredMixin, mixins.ListModelMixin, mixins.CreateModelMixin, viewsets.GenericViewSet):
+        invoices = Invoice.objects.filter(month=month)
+        invoices_count = invoices.count()
+        if not invoices_count:
+            return Response(
+                {"detail": "Δεν βρέθηκαν λογαριασμοί για τον μήνα."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+        payments_count = PaymentRecord.objects.filter(invoice__month=month).count()
+        documents_count = InvoiceDocument.objects.filter(invoice__month=month).count()
+        with transaction.atomic():
+            invoices.delete()
+
+        return Response(
+            {
+                "detail": f"Ανακλήθηκαν {invoices_count} λογαριασμοί για τον μήνα {month}.",
+                "month": month,
+                "invoices_deleted": invoices_count,
+                "payments_deleted": payments_count,
+                "documents_deleted": documents_count,
+            },
+            status=status.HTTP_200_OK,
+        )
+
+
+class PaymentRecordViewSet(
+    AdminWriteRequiredMixin,
+    mixins.ListModelMixin,
+    mixins.CreateModelMixin,
+    mixins.DestroyModelMixin,
+    viewsets.GenericViewSet,
+):
     serializer_class = PaymentRecordSerializer
     permission_classes = [IsAuthenticated]
 
@@ -1420,3 +1920,140 @@ class PaymentRecordViewSet(AdminWriteRequiredMixin, mixins.ListModelMixin, mixin
         response_data = self.get_serializer(payment).data
         response_data["notification_status"] = dispatch.status if dispatch else NotificationDispatch.Status.SENT
         return Response(response_data, status=status.HTTP_201_CREATED)
+
+    def destroy(self, request, *args, **kwargs):
+        if not self.is_admin_write():
+            return Response({"detail": "Απαγορεύεται."}, status=status.HTTP_403_FORBIDDEN)
+
+        payment = self.get_object()
+        with transaction.atomic():
+            invoice = payment.invoice
+            InvoiceDocument.objects.filter(payment=payment).delete()
+            payment.delete()
+            _recalculate_invoice_settlement(invoice)
+
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+class VoteSessionViewSet(viewsets.ModelViewSet):
+    serializer_class = VoteSessionSerializer
+    permission_classes = [IsAuthenticated]
+
+    def get_queryset(self):
+        user = self.request.user
+        queryset = VoteSession.objects.select_related("building", "created_by_user").all()
+        if user.role in ("superadmin", "administrator"):
+            return queryset.order_by("-start_at", "-id")
+        building_ids = ApartmentUser.objects.filter(user=user).values_list("apartment__building_id", flat=True).distinct()
+        return queryset.filter(building_id__in=building_ids).distinct().order_by("-start_at", "-id")
+
+    def create(self, request, *args, **kwargs):
+        if request.user.role not in ("superadmin", "administrator"):
+            return Response({"detail": "Απαγορεύεται."}, status=status.HTTP_403_FORBIDDEN)
+        return super().create(request, *args, **kwargs)
+
+    def update(self, request, *args, **kwargs):
+        if request.user.role not in ("superadmin", "administrator"):
+            return Response({"detail": "Απαγορεύεται."}, status=status.HTTP_403_FORBIDDEN)
+        return super().update(request, *args, **kwargs)
+
+    def partial_update(self, request, *args, **kwargs):
+        if request.user.role not in ("superadmin", "administrator"):
+            return Response({"detail": "Απαγορεύεται."}, status=status.HTTP_403_FORBIDDEN)
+        return super().partial_update(request, *args, **kwargs)
+
+    def destroy(self, request, *args, **kwargs):
+        if request.user.role not in ("superadmin", "administrator"):
+            return Response({"detail": "Απαγορεύεται."}, status=status.HTTP_403_FORBIDDEN)
+        return super().destroy(request, *args, **kwargs)
+
+    @action(methods=["get", "post"], detail=True, url_path="votes")
+    def votes(self, request, pk=None):
+        session = self.get_object()
+        if request.method == "GET":
+            queryset = Vote.objects.select_related("apartment", "voter_user").filter(vote_session=session)
+            if request.user.role not in ("superadmin", "administrator"):
+                apartment_ids = ApartmentUser.objects.filter(user=request.user).values_list("apartment_id", flat=True)
+                queryset = queryset.filter(apartment_id__in=apartment_ids)
+            serializer = VoteSerializer(queryset.order_by("apartment__unit_code"), many=True)
+            return Response({"items": serializer.data}, status=status.HTTP_200_OK)
+
+        now = timezone.now()
+        if session.status != VoteSession.Status.ACTIVE:
+            return Response({"detail": "Η ψηφοφορία δεν είναι ενεργή."}, status=status.HTTP_400_BAD_REQUEST)
+        if now < session.start_at or now > session.end_at:
+            return Response({"detail": "Η ψηφοφορία είναι εκτός ενεργού χρονικού διαστήματος."}, status=status.HTTP_400_BAD_REQUEST)
+
+        serializer = VoteSubmitSerializer(data=request.data, context={"request": request, "vote_session": session})
+        serializer.is_valid(raise_exception=True)
+        apartment = Apartment.objects.get(id=serializer.validated_data["apartment_id"])
+        designated = DesignatedVoter.objects.filter(apartment=apartment, voter_user=request.user).exists()
+        if not designated:
+            return Response(
+                {"detail": "Μόνο ο ορισμένος ψηφοφόρος μπορεί να ψηφίσει για το συγκεκριμένο διαμέρισμα."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        existing_vote = Vote.objects.filter(vote_session=session, apartment=apartment).first()
+        if existing_vote:
+            return Response(
+                {"detail": "Το διαμέρισμα έχει ήδη ψηφίσει. Η ψήφος είναι οριστική."},
+                status=status.HTTP_409_CONFLICT,
+            )
+
+        vote = Vote.objects.create(
+            vote_session=session,
+            apartment=apartment,
+            voter_user=request.user,
+            vote_value=serializer.validated_data["vote_value"],
+        )
+        vote_serializer = VoteSerializer(vote)
+        return Response(
+            {
+                "detail": "Η ψήφος καταχωρίστηκε.",
+                "item": vote_serializer.data,
+                "updated": False,
+            },
+            status=status.HTTP_200_OK,
+        )
+
+    @action(methods=["get"], detail=True, url_path="results")
+    def results(self, request, pk=None):
+        session = self.get_object()
+        all_votes = Vote.objects.select_related("apartment").filter(vote_session=session)
+        options = session.vote_options_json or [Vote.Value.YES, Vote.Value.NO, Vote.Value.ABSTAIN]
+        counts: dict[str, int] = {str(option): 0 for option in options}
+        permille_by_option: dict[str, Decimal] = {str(option): Decimal("0.000") for option in options}
+
+        total_votes = 0
+        for vote in all_votes:
+            option = str(vote.vote_value)
+            counts[option] = counts.get(option, 0) + 1
+            permille_by_option[option] = permille_by_option.get(option, Decimal("0.000")) + Decimal(vote.apartment.ownership_permille)
+            total_votes += 1
+
+        eligible_apartments_qs = Apartment.objects.filter(building=session.building)
+        eligible_apartments = eligible_apartments_qs.count()
+        total_eligible_permille = sum(
+            (Decimal(permille) for permille in eligible_apartments_qs.values_list("ownership_permille", flat=True)),
+            Decimal("0.000"),
+        )
+        submitted_permille = sum(permille_by_option.values(), Decimal("0.000"))
+
+        return Response(
+            {
+                "session_id": session.id,
+                "title": session.title,
+                "session_type": session.session_type,
+                "vote_options": options,
+                "eligible_apartments": eligible_apartments,
+                "submitted_votes": total_votes,
+                "counts": counts,
+                "permille": {
+                    **{option: q1(value) for option, value in permille_by_option.items()},
+                    "submitted_total": q1(submitted_permille),
+                    "eligible_total": q1(total_eligible_permille),
+                },
+            },
+            status=status.HTTP_200_OK,
+        )

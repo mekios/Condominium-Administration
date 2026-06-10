@@ -100,7 +100,7 @@ export class LoginComponent {
     if (this.form.invalid) return;
     this.loading = true;
     this.auth.login(this.form.value.username!, this.form.value.password!).subscribe({
-      next: () => this.router.navigateByUrl('/app/invoices'),
+      next: () => this.router.navigateByUrl('/app/dashboard'),
       error: () => {
         this.loading = false;
         this.error = true;

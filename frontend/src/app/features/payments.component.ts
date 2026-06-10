@@ -8,6 +8,7 @@ import { MatInputModule } from '@angular/material/input';
 import { HttpClient } from '@angular/common/http';
 
 import { API_BASE } from '../core/api.constants';
+import { AdminModeService } from '../core/admin-mode.service';
 import { AppDataService, Invoice, Me } from '../core/app-data.service';
 import { EuroPipe } from '../core/euro.pipe';
 
@@ -46,7 +47,7 @@ type PaymentRecord = {
         <button class="btn btn-secondary" (click)="loadAll()">Ανανέωση</button>
       </div>
 
-      <div class="form-grid" *ngIf="isAdmin(me)">
+      <div class="form-grid" *ngIf="writeEnabled">
         <label>
           Λογαριασμός προς πληρωμή
           <select [(ngModel)]="paymentForm.invoiceId">
@@ -81,7 +82,7 @@ type PaymentRecord = {
         </label>
       </div>
 
-      <div class="actions" *ngIf="isAdmin(me)">
+      <div class="actions" *ngIf="writeEnabled">
         <button class="btn btn-primary" (click)="submitPayment()">Καταχώριση πληρωμής</button>
       </div>
 
@@ -97,6 +98,7 @@ type PaymentRecord = {
               <th>Ποσό</th>
               <th>Μέθοδος</th>
               <th>Αναφορά</th>
+              <th *ngIf="writeEnabled"></th>
             </tr>
           </thead>
           <tbody>
@@ -107,6 +109,9 @@ type PaymentRecord = {
               <td>{{ row.amount | euro }}</td>
               <td>{{ paymentMethodLabel(row.method) }}</td>
               <td>{{ row.reference || '-' }}</td>
+              <td *ngIf="writeEnabled">
+                <button class="btn btn-danger" (click)="deletePayment(row)">Διαγραφή</button>
+              </td>
             </tr>
           </tbody>
         </table>
@@ -129,6 +134,7 @@ type PaymentRecord = {
     .btn { border: 0; border-radius: 10px; padding: 0.58rem 0.95rem; color: #fff; font-weight: 600; cursor: pointer; }
     .btn-primary { background: linear-gradient(135deg, #4f78ff, #6d62ff); box-shadow: 0 8px 18px rgba(70,95,255,.35); }
     .btn-secondary { border: 1px solid #30457d; background: #132247; }
+    .btn-danger { padding: 0.35rem 0.65rem; font-size: 0.82rem; }
     .table-wrap { overflow: auto; margin-top: 0.75rem; }
     table { width: 100%; min-width: 720px; border-collapse: collapse; }
     th, td { border-bottom: 1px solid #243152; padding: 0.45rem; text-align: left; white-space: nowrap; font-size: 0.88rem; }
@@ -138,6 +144,7 @@ type PaymentRecord = {
 })
 export class PaymentsComponent implements OnInit {
   me: Me | null = null;
+  writeEnabled = false;
   month = new Date().toISOString().slice(0, 7);
   message = '';
   payments: PaymentRecord[] = [];
@@ -153,19 +160,24 @@ export class PaymentsComponent implements OnInit {
   constructor(
     private readonly http: HttpClient,
     private readonly data: AppDataService,
+    private readonly adminMode: AdminModeService,
   ) {}
 
   ngOnInit(): void {
-    this.data.getMe().subscribe((me) => (this.me = me));
+    this.adminMode.adminModeActive$.subscribe(() => this.refreshWriteEnabled());
+    this.data.getMe().subscribe((me) => {
+      this.me = me;
+      this.refreshWriteEnabled();
+    });
     this.loadAll();
+  }
+
+  private refreshWriteEnabled(): void {
+    this.writeEnabled = this.adminMode.canManage(this.me);
   }
 
   get payableInvoices(): Invoice[] {
     return this.invoices.filter((inv) => Number(inv.outstanding_balance) > 0);
-  }
-
-  isAdmin(me: Me | null): boolean {
-    return me?.role === 'superadmin' || me?.role === 'administrator';
   }
 
   loadAll(): void {
@@ -206,6 +218,23 @@ export class PaymentsComponent implements OnInit {
           this.message = 'Αποτυχία καταχώρισης πληρωμής.';
         },
       });
+  }
+
+  deletePayment(row: PaymentRecord): void {
+    const confirmed = window.confirm(
+      `Να διαγραφεί η πληρωμή ${row.amount} € (${row.payment_date}) για ${row.apartment_label};`,
+    );
+    if (!confirmed) return;
+
+    this.http.delete(`${API_BASE}/api/accounting/payments/${row.id}/`).subscribe({
+      next: () => {
+        this.message = 'Η πληρωμή διαγράφηκε.';
+        this.loadAll();
+      },
+      error: (error) => {
+        this.message = error?.error?.detail || 'Αποτυχία διαγραφής πληρωμής.';
+      },
+    });
   }
 
   paymentMethodLabel(value: string): string {

@@ -43,6 +43,7 @@ export type Invoice = {
 export class AppDataService {
   private meCache: Me | null = null;
   private apartmentsCache: Apartment[] | null = null;
+  private linkedApartmentsCache: Apartment[] | null = null;
 
   constructor(private readonly http: HttpClient) {}
 
@@ -58,12 +59,23 @@ export class AppDataService {
       return of(this.sortApartmentsByUnitCode(this.apartmentsCache));
     }
     return this.http
-      .get<Apartment[]>(`${API_BASE}/api/apartments/`)
+      .get<Apartment[]>(`${API_BASE}/api/apartments/?all=1`)
       .pipe(
         tap((apartments) => {
           this.apartmentsCache = this.sortApartmentsByUnitCode(apartments);
         }),
       );
+  }
+
+  getLinkedApartments(force = false): Observable<Apartment[]> {
+    if (!force && this.linkedApartmentsCache) {
+      return of(this.sortApartmentsByUnitCode(this.linkedApartmentsCache));
+    }
+    return this.http.get<Apartment[]>(`${API_BASE}/api/apartments/`).pipe(
+      tap((apartments) => {
+        this.linkedApartmentsCache = this.sortApartmentsByUnitCode(apartments);
+      }),
+    );
   }
 
   getInvoices(month: string): Observable<Invoice[]> {
@@ -73,6 +85,7 @@ export class AppDataService {
   clearCache(): void {
     this.meCache = null;
     this.apartmentsCache = null;
+    this.linkedApartmentsCache = null;
   }
 
   private sortApartmentsByUnitCode(apartments: Apartment[]): Apartment[] {
