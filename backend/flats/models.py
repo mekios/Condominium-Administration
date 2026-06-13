@@ -209,6 +209,8 @@ class Invoice(models.Model):
     common_recurring_total = models.DecimalField(max_digits=14, decimal_places=2, default=0)
     common_non_recurring_total = models.DecimalField(max_digits=14, decimal_places=2, default=0)
     owners_only_total = models.DecimalField(max_digits=14, decimal_places=2, default=0)
+    custom_adjustment = models.DecimalField(max_digits=14, decimal_places=2, default=0)
+    custom_adjustment_note = models.TextField(blank=True)
     invoice_total = models.DecimalField(max_digits=14, decimal_places=2, default=0)
     paid_total = models.DecimalField(max_digits=14, decimal_places=2, default=0)
     outstanding_balance = models.DecimalField(max_digits=14, decimal_places=2, default=0)

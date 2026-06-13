@@ -141,6 +141,71 @@ class InvoiceGenerationTests(APITestCase):
             q2(expected_i2_radiators + expected_i2_heated_water + expected_i2_water),
         )
 
+    def test_invoice_generation_applies_custom_adjustments(self):
+        month = "2026-04"
+        HeatingMeasurementInput.objects.create(
+            apartment=self.a1,
+            measurement_date=date(2026, 4, 1),
+            e_factor=Decimal("0.10"),
+            f_factor=Decimal("0.30"),
+            units_counted=Decimal("100"),
+            computed_radiator_heating_energy=Decimal("0.03"),
+            created_by_user=self.admin,
+        )
+        HeatingMeasurementInput.objects.create(
+            apartment=self.a2,
+            measurement_date=date(2026, 4, 1),
+            e_factor=Decimal("0.20"),
+            f_factor=Decimal("0.20"),
+            units_counted=Decimal("80"),
+            computed_radiator_heating_energy=Decimal("0.04"),
+            created_by_user=self.admin,
+        )
+        ExpenseItem.objects.create(
+            building=self.building,
+            expense_category=ExpenseItem.Category.GAS_HEATING,
+            expense_date=date(2026, 4, 10),
+            amount=Decimal("200.00"),
+            created_by_user=self.admin,
+        )
+
+        response = self.client.post(
+            reverse("invoices-generate"),
+            {
+                "month": month,
+                "adjustments": [
+                    {"apartment": self.a1.id, "amount": "-25.50", "note": "Έργα ιδιοκτήτη"},
+                    {"apartment": self.a2.id, "amount": "10.00", "note": "Αγορά υλικών"},
+                ],
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        i1 = Invoice.objects.get(apartment=self.a1, month=month)
+        i2 = Invoice.objects.get(apartment=self.a2, month=month)
+        base_i1 = q2(Decimal("200.00") * Decimal("0.5466666666666666666666666667"))
+        base_i2 = q2(Decimal("200.00") * Decimal("0.4533333333333333333333333333"))
+
+        self.assertEqual(i1.custom_adjustment, q2(Decimal("-25.50")))
+        self.assertEqual(i1.custom_adjustment_note, "Έργα ιδιοκτήτη")
+        self.assertEqual(i1.invoice_total, q2(base_i1 + Decimal("-25.50")))
+        self.assertEqual(i2.custom_adjustment, q2(Decimal("10.00")))
+        self.assertEqual(i2.custom_adjustment_note, "Αγορά υλικών")
+        self.assertEqual(i2.invoice_total, q2(base_i2 + Decimal("10.00")))
+
+        from flats.views import _create_invoice_pdf
+
+        _, pdf_bytes = _create_invoice_pdf(i1)
+        self.assertTrue(pdf_bytes.startswith(b"%PDF"))
+        self.assertGreater(len(pdf_bytes), 5000)
+
+        preview = self.client.get(reverse("invoices-preview"), {"month": month})
+        self.assertEqual(preview.status_code, status.HTTP_200_OK)
+        preview_by_apartment = {item["apartment"]: item for item in preview.data["items"]}
+        self.assertEqual(Decimal(preview_by_apartment[self.a1.id]["custom_adjustment"]), i1.custom_adjustment)
+        self.assertEqual(preview_by_apartment[self.a1.id]["custom_adjustment_note"], "Έργα ιδιοκτήτη")
+
     def test_invoice_generate_rejects_invalid_sum_fixed(self):
         month = "2026-05"
         HeatingMeasurementInput.objects.create(

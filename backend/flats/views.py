@@ -46,6 +46,7 @@ from .serializers import (
     HeatingBulkUpsertSerializer,
     HeatedWaterMeasurementInputSerializer,
     InvoiceMarkPaidSerializer,
+    InvoiceAdjustmentInputSerializer,
     InvoiceGenerateSerializer,
     InvoiceSerializer,
     PaymentRecordSerializer,
@@ -529,6 +530,36 @@ def _create_receipt_pdf(invoice: Invoice, payment: PaymentRecord) -> tuple[str, 
     return filename, pdf_bytes
 
 
+def _invoice_computed_total(invoice: Invoice) -> Decimal:
+    return q2(
+        invoice.heating_radiators_total
+        + invoice.heated_water_energy_total
+        + invoice.water_consumption_total
+        + invoice.common_recurring_total
+        + invoice.common_non_recurring_total
+        + invoice.owners_only_total
+    )
+
+
+def _invoice_pdf_totals(invoice: Invoice) -> list[tuple[str, str]]:
+    custom_adjustment = q2(invoice.custom_adjustment or Decimal("0.00"))
+    totals: list[tuple[str, str]] = []
+    if custom_adjustment != Decimal("0.00"):
+        totals.append(("Υπολογισμένο σύνολο", _format_currency(_invoice_computed_total(invoice))))
+        adjustment_label = "Προσαρμογή"
+        if invoice.custom_adjustment_note:
+            adjustment_label = f"{adjustment_label}: {invoice.custom_adjustment_note}"
+        totals.append((adjustment_label, _format_currency(custom_adjustment)))
+    totals.extend(
+        [
+            ("Σύνολο λογαριασμού", _format_currency(invoice.invoice_total)),
+            ("Πληρωμένο", _format_currency(invoice.paid_total)),
+            ("Υπόλοιπο", _format_currency(invoice.outstanding_balance)),
+        ]
+    )
+    return totals
+
+
 def _create_invoice_pdf(invoice: Invoice) -> tuple[str, bytes]:
     apartment_label = invoice.apartment.apartment_label
     meta_left = [
@@ -541,11 +572,7 @@ def _create_invoice_pdf(invoice: Invoice) -> tuple[str, bytes]:
         f"Υπόλοιπο: {_format_currency(invoice.outstanding_balance)}",
         "Τύπος: Μηνιαίος λογαριασμός",
     ]
-    totals = [
-        ("Σύνολο λογαριασμού", _format_currency(invoice.invoice_total)),
-        ("Πληρωμένο", _format_currency(invoice.paid_total)),
-        ("Υπόλοιπο", _format_currency(invoice.outstanding_balance)),
-    ]
+    totals = _invoice_pdf_totals(invoice)
 
     row_headers = ["Έξοδο", "Ημερομηνία", "Σύνολο εξόδου", "Μερίδιο"]
     rows: list[list[str]] = []
@@ -567,6 +594,18 @@ def _create_invoice_pdf(invoice: Invoice) -> tuple[str, bytes]:
             ["Έκτακτα", _format_currency(invoice.common_non_recurring_total)],
             ["Μόνο ιδιοκτήτες", _format_currency(invoice.owners_only_total)],
         ]
+
+    custom_adjustment = q2(invoice.custom_adjustment or Decimal("0.00"))
+    if custom_adjustment != Decimal("0.00"):
+        label = "Προσαρμογή"
+        if invoice.custom_adjustment_note:
+            label = f"{label}: {invoice.custom_adjustment_note}"
+        if len(row_headers) == 4:
+            rows.append([label, "", "", _format_currency(custom_adjustment)])
+            emphasis_rows = set(emphasis_rows or set())
+            emphasis_rows.add(len(rows) - 1)
+        else:
+            rows.append([label, _format_currency(custom_adjustment)])
 
     pdf_bytes = _build_branded_pdf(
         document_title="ΜΗΝΙΑΙΟΣ ΛΟΓΑΡΙΑΣΜΟΣ",
@@ -832,6 +871,72 @@ def _invoice_generation_warnings(month: str, apartments, rows) -> list[str]:
             )
 
     return warnings
+
+
+def _computed_invoice_total(data: dict) -> Decimal:
+    return q2(
+        data["heating_radiators_total"]
+        + data["heated_water_energy_total"]
+        + data["water_consumption_total"]
+        + data["common_recurring_total"]
+        + data["common_non_recurring_total"]
+        + data["owners_only_total"]
+    )
+
+
+def _parse_invoice_adjustments(raw_adjustments, valid_apartment_ids: set[int]) -> dict[int, dict]:
+    serializer = InvoiceAdjustmentInputSerializer(data=raw_adjustments or [], many=True)
+    serializer.is_valid(raise_exception=True)
+    adjustments: dict[int, dict] = {}
+    for item in serializer.validated_data:
+        apartment_id = item["apartment"]
+        if apartment_id not in valid_apartment_ids:
+            continue
+        adjustments[apartment_id] = {
+            "amount": q2(item["amount"]),
+            "note": (item.get("note") or "").strip(),
+        }
+    return adjustments
+
+
+def _resolve_invoice_adjustment(
+    apartment_id: int,
+    *,
+    adjustments_provided: bool,
+    adjustments_map: dict[int, dict],
+    existing_invoice: Invoice | None,
+) -> tuple[Decimal, str]:
+    if adjustments_provided:
+        adjustment = adjustments_map.get(apartment_id, {"amount": Decimal("0.00"), "note": ""})
+        return q2(adjustment["amount"]), adjustment.get("note", "")
+    if existing_invoice is not None:
+        return q2(existing_invoice.custom_adjustment or Decimal("0.00")), existing_invoice.custom_adjustment_note or ""
+    return Decimal("0.00"), ""
+
+
+def _build_preview_invoice_item(apartment, month: str, data: dict, existing_invoice: Invoice | None) -> dict:
+    computed_total = _computed_invoice_total(data)
+    custom_adjustment, custom_note = _resolve_invoice_adjustment(
+        apartment.id,
+        adjustments_provided=False,
+        adjustments_map={},
+        existing_invoice=existing_invoice,
+    )
+    return {
+        "apartment": apartment.id,
+        "apartment_unit_code": apartment.apartment_label,
+        "month": month,
+        "heating_radiators_total": q2(data["heating_radiators_total"]),
+        "heated_water_energy_total": q2(data["heated_water_energy_total"]),
+        "water_consumption_total": q2(data["water_consumption_total"]),
+        "common_recurring_total": q2(data["common_recurring_total"]),
+        "common_non_recurring_total": q2(data["common_non_recurring_total"]),
+        "owners_only_total": q2(data["owners_only_total"]),
+        "computed_total": computed_total,
+        "custom_adjustment": custom_adjustment,
+        "custom_adjustment_note": custom_note,
+        "invoice_total": q2(computed_total + custom_adjustment),
+    }
 
 
 def _calculate_invoice_rows(month: str):
@@ -1670,31 +1775,19 @@ class InvoiceViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, viewsets.
         if error:
             return Response(error, status=status.HTTP_400_BAD_REQUEST)
         apartments, rows, _breakdown = result
+        existing_invoices = {
+            invoice.apartment_id: invoice for invoice in Invoice.objects.filter(month=month)
+        }
 
         preview_items = []
         for apartment in apartments:
-            data = rows[apartment.id]
-            invoice_total = q2(
-                data["heating_radiators_total"]
-                + data["heated_water_energy_total"]
-                + data["water_consumption_total"]
-                + data["common_recurring_total"]
-                + data["common_non_recurring_total"]
-                + data["owners_only_total"]
-            )
             preview_items.append(
-                {
-                    "apartment": apartment.id,
-                    "apartment_unit_code": apartment.apartment_label,
-                    "month": month,
-                    "heating_radiators_total": q2(data["heating_radiators_total"]),
-                    "heated_water_energy_total": q2(data["heated_water_energy_total"]),
-                    "water_consumption_total": q2(data["water_consumption_total"]),
-                    "common_recurring_total": q2(data["common_recurring_total"]),
-                    "common_non_recurring_total": q2(data["common_non_recurring_total"]),
-                    "owners_only_total": q2(data["owners_only_total"]),
-                    "invoice_total": invoice_total,
-                }
+                _build_preview_invoice_item(
+                    apartment,
+                    month,
+                    rows[apartment.id],
+                    existing_invoices.get(apartment.id),
+                )
             )
 
         warnings = _invoice_generation_warnings(month, apartments, rows)
@@ -1749,20 +1842,31 @@ class InvoiceViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, viewsets.
         if error:
             return Response(error, status=status.HTTP_400_BAD_REQUEST)
         apartments, rows, _breakdown = result
+        valid_apartment_ids = {apartment.id for apartment in apartments}
+        adjustments_provided = "adjustments" in request.data
+        adjustments_map = (
+            _parse_invoice_adjustments(request.data.get("adjustments"), valid_apartment_ids)
+            if adjustments_provided
+            else {}
+        )
+        existing_invoices = {
+            invoice.apartment_id: invoice for invoice in Invoice.objects.filter(month=month)
+        }
 
         with transaction.atomic():
             created_count = 0
             updated_count = 0
             for apartment in apartments:
                 data = rows[apartment.id]
-                invoice_total = q2(
-                    data["heating_radiators_total"]
-                    + data["heated_water_energy_total"]
-                    + data["water_consumption_total"]
-                    + data["common_recurring_total"]
-                    + data["common_non_recurring_total"]
-                    + data["owners_only_total"]
+                computed_total = _computed_invoice_total(data)
+                existing_invoice = existing_invoices.get(apartment.id)
+                custom_adjustment, custom_note = _resolve_invoice_adjustment(
+                    apartment.id,
+                    adjustments_provided=adjustments_provided,
+                    adjustments_map=adjustments_map,
+                    existing_invoice=existing_invoice,
                 )
+                invoice_total = q2(computed_total + custom_adjustment)
 
                 invoice, created = Invoice.objects.get_or_create(apartment=apartment, month=month)
                 if created:
@@ -1775,6 +1879,8 @@ class InvoiceViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, viewsets.
                 invoice.common_recurring_total = q2(data["common_recurring_total"])
                 invoice.common_non_recurring_total = q2(data["common_non_recurring_total"])
                 invoice.owners_only_total = q2(data["owners_only_total"])
+                invoice.custom_adjustment = custom_adjustment
+                invoice.custom_adjustment_note = custom_note
                 invoice.invoice_total = invoice_total
                 if invoice.paid_total > invoice_total:
                     invoice.paid_total = invoice_total

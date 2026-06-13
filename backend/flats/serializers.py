@@ -165,6 +165,8 @@ class InvoiceSerializer(serializers.ModelSerializer):
             "common_recurring_total",
             "common_non_recurring_total",
             "owners_only_total",
+            "custom_adjustment",
+            "custom_adjustment_note",
             "invoice_total",
             "paid_total",
             "outstanding_balance",
@@ -174,8 +176,15 @@ class InvoiceSerializer(serializers.ModelSerializer):
         ]
 
 
+class InvoiceAdjustmentInputSerializer(serializers.Serializer):
+    apartment = serializers.IntegerField()
+    amount = serializers.DecimalField(max_digits=14, decimal_places=2)
+    note = serializers.CharField(required=False, allow_blank=True, default="", max_length=500)
+
+
 class InvoiceGenerateSerializer(serializers.Serializer):
     month = serializers.CharField(max_length=7)
+    adjustments = InvoiceAdjustmentInputSerializer(many=True, required=False)
 
     def validate_month(self, value: str):
         if len(value) != 7 or value[4] != "-":

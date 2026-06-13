@@ -14,8 +14,10 @@ import { AdminModeService } from '../core/admin-mode.service';
 import { AppDataService, Invoice, Me } from '../core/app-data.service';
 import { API_BASE } from '../core/api.constants';
 import { DialogService } from '../core/dialog/dialog.service';
+import { invoiceComputedTotal, invoiceHasAdjustment, invoiceAdjustmentLabel } from '../core/invoice.utils';
 
 type DraftInvoiceItem = {
+  apartment: number;
   apartment_unit_code: string;
   month: string;
   heating_radiators_total: string;
@@ -24,6 +26,9 @@ type DraftInvoiceItem = {
   common_recurring_total: string;
   common_non_recurring_total: string;
   owners_only_total: string;
+  computed_total: string;
+  custom_adjustment: string;
+  custom_adjustment_note: string;
   invoice_total: string;
 };
 
@@ -116,10 +121,17 @@ type InvoiceFilterMode = 'single' | 'range' | 'all';
             <div><span>Κοινόχρηστα</span><strong>{{ inv.common_recurring_total | euro }}</strong></div>
             <div><span>Έκτακτα</span><strong>{{ inv.common_non_recurring_total | euro }}</strong></div>
             <div><span>Μόνο ιδιοκτ.</span><strong>{{ (inv.owners_only_total || '0.00') | euro }}</strong></div>
+            <div *ngIf="hasAdjustment(inv)">
+              <span>{{ getAdjustmentLabel(inv) }}</span>
+              <strong>{{ inv.custom_adjustment | euro }}</strong>
+            </div>
           </div>
 
           <footer class="card-footer">
             <div class="summary">
+              <p *ngIf="hasAdjustment(inv)">
+                Υπολογ. σύνολο: <strong>{{ getComputedTotal(inv) | euro }}</strong>
+              </p>
               <p>Σύνολο: <strong>{{ inv.invoice_total | euro }}</strong></p>
               <p>Υπόλοιπο: <strong>{{ inv.outstanding_balance | euro }}</strong></p>
             </div>
@@ -145,7 +157,7 @@ type InvoiceFilterMode = 'single' | 'range' | 'all';
           <header class="modal-head">
             <div>
               <h3>Δημιουργία λογαριασμών μήνα</h3>
-              <p class="modal-subtitle">Επίλεξε μήνα και κάνε προεπισκόπηση κατανομής πριν τη δημιουργία.</p>
+              <p class="modal-subtitle">Επίλεξε μήνα, κάνε προεπισκόπηση κατανομής και προσάρμοσε ποσά ανά διαμέρισμα (+/-).</p>
             </div>
             <button class="icon-btn" aria-label="Κλείσιμο" (click)="closeGeneratePopup()">✕</button>
           </header>
@@ -172,7 +184,10 @@ type InvoiceFilterMode = 'single' | 'range' | 'all';
                   <th>Κοινόχρηστα</th>
                   <th>Έκτακτα</th>
                   <th>Μόνο ιδιοκτ.</th>
-                  <th>Προβλεπόμενο σύνολο</th>
+                  <th>Υπολογ. σύνολο</th>
+                  <th>Προσαρμογή</th>
+                  <th>Σχόλιο</th>
+                  <th>Τελικό σύνολο</th>
                 </tr>
               </thead>
               <tbody>
@@ -184,7 +199,25 @@ type InvoiceFilterMode = 'single' | 'range' | 'all';
                   <td>{{ row.common_recurring_total | euro }}</td>
                   <td>{{ row.common_non_recurring_total | euro }}</td>
                   <td>{{ row.owners_only_total | euro }}</td>
-                  <td>{{ row.invoice_total | euro }}</td>
+                  <td>{{ row.computed_total | euro }}</td>
+                  <td>
+                    <input
+                      class="adjustment-input"
+                      type="number"
+                      step="0.01"
+                      [ngModel]="row.custom_adjustment"
+                      (ngModelChange)="onAdjustmentChange(row, $event)"
+                    />
+                  </td>
+                  <td>
+                    <input
+                      class="note-input"
+                      type="text"
+                      placeholder="π.χ. έργα, αγορές"
+                      [(ngModel)]="row.custom_adjustment_note"
+                    />
+                  </td>
+                  <td>{{ getAdjustedTotal(row) | euro }}</td>
                 </tr>
               </tbody>
             </table>
@@ -516,7 +549,7 @@ type InvoiceFilterMode = 'single' | 'range' | 'all';
       box-shadow: 0 20px 60px rgba(0, 0, 0, 0.45);
     }
     .generate-modal {
-      width: min(980px, 100%);
+      width: min(1280px, 100%);
     }
     .generate-controls {
       display: flex;
@@ -539,6 +572,17 @@ type InvoiceFilterMode = 'single' | 'range' | 'all';
       padding: 0.6rem 0.75rem;
       min-height: 44px;
     }
+    .adjustment-input,
+    .note-input {
+      border: 1px solid #385089;
+      border-radius: 8px;
+      background: #101d3d;
+      color: #f4f8ff;
+      padding: 0.35rem 0.45rem;
+      font-size: 0.84rem;
+    }
+    .adjustment-input { width: 6.5rem; }
+    .note-input { width: min(12rem, 100%); }
     .modal-head {
       display: flex;
       justify-content: space-between;
@@ -928,7 +972,10 @@ export class InvoicesComponent implements OnInit {
     this.generationSaving = true;
     this.message = '';
     this.http
-      .post<{ detail: string }>(`${API_BASE}/api/invoices/generate/`, { month: this.month })
+      .post<{ detail: string }>(`${API_BASE}/api/invoices/generate/`, {
+        month: this.month,
+        adjustments: this.buildAdjustmentsPayload(),
+      })
       .pipe(finalize(() => (this.generationSaving = false)))
       .subscribe({
         next: (response) => {
@@ -1098,6 +1145,19 @@ export class InvoicesComponent implements OnInit {
     return apartmentLabel.slice(idx + 1).trim();
   }
 
+  hasAdjustment(inv: Invoice): boolean {
+    return invoiceHasAdjustment(inv);
+  }
+
+  getComputedTotal(inv: Invoice): number {
+    return invoiceComputedTotal(inv);
+  }
+
+  getAdjustmentLabel(inv: Invoice): string {
+    const note = invoiceAdjustmentLabel(inv);
+    return note ? `Προσαρμογή (${note})` : 'Προσαρμογή';
+  }
+
   openGeneratePopup(): void {
     this.previewError = '';
     this.previewWarnings = [];
@@ -1125,18 +1185,40 @@ export class InvoicesComponent implements OnInit {
       .pipe(finalize(() => (this.previewLoading = false)))
       .subscribe({
         next: (response) => {
-          this.previewItems = response.items;
+          this.previewItems = response.items.map((item) => ({
+            ...item,
+            custom_adjustment: item.custom_adjustment || '0',
+            custom_adjustment_note: item.custom_adjustment_note || '',
+          }));
           this.previewWarnings = response.warnings || [];
           if (!this.previewItems.length) {
             this.previewError = 'Δεν προέκυψαν στοιχεία κατανομής για αυτόν τον μήνα.';
           }
         },
-        error: () => {
+        error: (err) => {
           this.previewItems = [];
           this.previewWarnings = [];
-          this.previewError = 'Αποτυχία φόρτωσης προεπισκόπησης.';
+          this.previewError = err?.error?.detail || 'Αποτυχία φόρτωσης προεπισκόπησης.';
         },
       });
+  }
+
+  onAdjustmentChange(row: DraftInvoiceItem, value: string | number): void {
+    row.custom_adjustment = value === '' || value === null ? '0' : String(value);
+  }
+
+  getAdjustedTotal(row: DraftInvoiceItem): string {
+    const computed = Number(row.computed_total || row.invoice_total || 0);
+    const adjustment = Number(row.custom_adjustment || 0);
+    return (computed + adjustment).toFixed(2);
+  }
+
+  private buildAdjustmentsPayload(): { apartment: number; amount: string; note: string }[] {
+    return this.previewItems.map((row) => ({
+      apartment: row.apartment,
+      amount: row.custom_adjustment || '0',
+      note: row.custom_adjustment_note || '',
+    }));
   }
 
   toggleActionMenu(invoiceId: number, event?: MouseEvent): void {

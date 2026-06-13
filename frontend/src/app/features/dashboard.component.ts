@@ -18,6 +18,8 @@ import {
   getIconPath,
   isFundIncreaseCategory,
 } from '../core/expense-categories';
+import { invoiceComputedTotal, invoiceHasAdjustment, invoiceAdjustmentLabel } from '../core/invoice.utils';
+import { userDisplayName } from '../core/user.utils';
 
 type ExpenseItem = {
   id: number;
@@ -44,7 +46,7 @@ type Building = {
       <article class="stat-card welcome-card">
         <p class="welcome-kicker">Dashboard</p>
         <h1 class="welcome-title">
-          {{ greetingPrefix }}, <span class="welcome-name">{{ me?.username || 'Χρήστη' }}</span>
+          {{ greetingPrefix }}, <span class="welcome-name">{{ getDisplayName() }}</span>
         </h1>
         <p class="welcome-sub">
           {{ greetingSubtitle }}
@@ -54,7 +56,7 @@ type Building = {
         </p>
       </article>
       <article class="stat-card finance-card" [class.negative]="buildingFinanceBalance < 0">
-        <p class="label">Υπόλοιπο ταμείου κτιρίου</p>
+        <h2>Υπόλοιπο ταμείου κτιρίου</h2>
         <p class="value">{{ buildingFinanceBalance | euro }}</p>
         <div class="finance-breakdown">
           <div class="fund-row">
@@ -105,6 +107,12 @@ type Building = {
             </span>
           </header>
           <div class="totals">
+            <div *ngIf="hasAdjustment(inv)">
+              <span>Υπολογ. σύνολο</span><strong>{{ getComputedTotal(inv) | euro }}</strong>
+            </div>
+            <div *ngIf="hasAdjustment(inv)">
+              <span>{{ getAdjustmentLabel(inv) }}</span><strong>{{ inv.custom_adjustment | euro }}</strong>
+            </div>
             <div><span>Σύνολο</span><strong>{{ inv.invoice_total | euro }}</strong></div>
             <div><span>Υπόλοιπο</span><strong>{{ inv.outstanding_balance | euro }}</strong></div>
           </div>
@@ -649,6 +657,23 @@ export class DashboardComponent implements OnInit, OnDestroy {
     this.buildingFinanceBalance = this.openingBalance - this.latestExpensesTotal - this.unpaidTotal;
     const ratio = this.openingBalance > 0 ? (this.buildingFinanceBalance / this.openingBalance) * 100 : 0;
     this.balanceFillPercent = Math.max(0, Math.min(100, ratio));
+  }
+
+  hasAdjustment(inv: Invoice): boolean {
+    return invoiceHasAdjustment(inv);
+  }
+
+  getComputedTotal(inv: Invoice): number {
+    return invoiceComputedTotal(inv);
+  }
+
+  getAdjustmentLabel(inv: Invoice): string {
+    const note = invoiceAdjustmentLabel(inv);
+    return note ? `Προσαρμογή (${note})` : 'Προσαρμογή';
+  }
+
+  getDisplayName(): string {
+    return userDisplayName(this.me);
   }
 
   downloadInvoicePdf(invoice: Invoice): void {

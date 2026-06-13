@@ -17,6 +17,8 @@ export type Apartment = {
 export type Me = {
   id: number;
   username: string;
+  first_name: string;
+  last_name: string;
   email: string;
   role: string;
   preferred_language: string;
@@ -33,6 +35,8 @@ export type Invoice = {
   common_recurring_total: string;
   common_non_recurring_total: string;
   owners_only_total: string;
+  custom_adjustment?: string;
+  custom_adjustment_note?: string;
   invoice_total: string;
   paid_total: string;
   outstanding_balance: string;
