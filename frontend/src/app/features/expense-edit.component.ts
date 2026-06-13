@@ -99,6 +99,10 @@ type DraftInvoiceItem = {
           [value]="expense.affected_period_end || ''"
           (valueChange)="setAffectedPeriodEnd($event)"
         />
+        <p class="hint full" *ngIf="expense.expense_category === 'gas_heating_bill'">
+          Το συνολικό ποσό φυσικού αερίου κατανέμεται αυτόματα σε καλοριφέρ και ζεστό νερό
+          βάσει των μετρήσεων (διαμερίσματα + λέβητας κτιρίου) στο επιλεγμένο εύρος ημερομηνιών.
+        </p>
         <label class="full">
           Περιγραφή
           <input type="text" [(ngModel)]="expense.description" />
@@ -301,8 +305,7 @@ export class ExpenseEditComponent implements OnInit {
   requiresMeasurementRange(): boolean {
     return (
       this.expense?.expense_category === 'gas_heating_bill' ||
-      this.expense?.expense_category === 'water_hw_consumption_bill' ||
-      this.expense?.expense_category === 'gas_hw_consumption_bill'
+      this.expense?.expense_category === 'water_hw_consumption_bill'
     );
   }
 

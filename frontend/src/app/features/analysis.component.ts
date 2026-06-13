@@ -1,13 +1,23 @@
-import { Component, OnInit } from '@angular/core';
+import { Component, OnDestroy, OnInit } from '@angular/core';
 import { NgFor, NgIf } from '@angular/common';
 import { HttpClient } from '@angular/common/http';
-import { catchError, finalize, forkJoin, of } from 'rxjs';
+import {
+  Subject,
+  catchError,
+  forkJoin,
+  map,
+  of,
+  switchMap,
+  takeUntil,
+  tap,
+} from 'rxjs';
 
 import { API_BASE } from '../core/api.constants';
 import { Invoice } from '../core/app-data.service';
 import { EuroPipe } from '../core/euro.pipe';
 import { MonthFormatPipe } from '../core/month-format.pipe';
 import { MonthPickerComponent } from '../core/month-picker/month-picker.component';
+import { currentMonth } from '../core/month.utils';
 import { getDisplayLabel, isFundIncreaseCategory } from '../core/expense-categories';
 
 type ExpenseItem = {
@@ -15,6 +25,18 @@ type ExpenseItem = {
   expense_category: string;
   amount: string;
   expense_date: string;
+  month: string;
+};
+
+type DraftInvoiceItem = {
+  apartment_unit_code: string;
+  heating_radiators_total: string;
+  heated_water_energy_total: string;
+  water_consumption_total: string;
+  common_recurring_total: string;
+  common_non_recurring_total: string;
+  owners_only_total: string;
+  invoice_total: string;
 };
 
 type ApartmentAnalysisRow = {
@@ -27,6 +49,16 @@ type ApartmentAnalysisRow = {
   ownersOnlyTotal: string;
   invoiceTotal: string;
   sharePercent: number;
+};
+
+type MonthLoadResult = {
+  month: string;
+  expenses: ExpenseItem[];
+  analysisRows: ApartmentAnalysisRow[];
+  totalExpenses: number;
+  totalInvoices: number;
+  isPreview: boolean;
+  previewError: string | null;
 };
 
 @Component({
@@ -47,6 +79,9 @@ type ApartmentAnalysisRow = {
 
       <p class="hint" *ngIf="loading">Φόρτωση ανάλυσης...</p>
       <p class="hint error" *ngIf="!loading && message">{{ message }}</p>
+      <p class="hint preview-note" *ngIf="!loading && isPreview && analysisRows.length">
+        Προεπισκόπηση κατανομής — δεν έχουν εκδοθεί επίσημοι λογαριασμοί για αυτόν τον μήνα.
+      </p>
     </section>
 
     <section class="panel">
@@ -120,7 +155,7 @@ type ApartmentAnalysisRow = {
         </table>
       </div>
       <ng-template #noShares>
-        <p class="hint">Δεν υπάρχουν λογαριασμοί για αυτόν τον μήνα.</p>
+        <p class="hint">Δεν υπάρχουν λογαριασμοί ή προεπισκόπηση κατανομής για αυτόν τον μήνα.</p>
       </ng-template>
     </section>
   `,
@@ -150,6 +185,9 @@ type ApartmentAnalysisRow = {
     .hint {
       margin: 0.25rem 0 0;
       color: #9db1e2;
+    }
+    .preview-note {
+      color: #ffd37d;
     }
     .error {
       color: #ffb8c9;
@@ -193,105 +231,217 @@ type ApartmentAnalysisRow = {
     }
   `,
 })
-export class AnalysisComponent implements OnInit {
+export class AnalysisComponent implements OnInit, OnDestroy {
   readonly getDisplayLabel = getDisplayLabel;
-  selectedMonth = new Date().toISOString().slice(0, 7);
+  selectedMonth = currentMonth();
   expenses: ExpenseItem[] = [];
-  invoices: Invoice[] = [];
   analysisRows: ApartmentAnalysisRow[] = [];
   totalExpenses = 0;
   totalInvoices = 0;
   loading = false;
+  isPreview = false;
   message = '';
 
-  constructor(
-    private readonly http: HttpClient,
-  ) {}
+  private readonly destroy$ = new Subject<void>();
+  private readonly monthLoad$ = new Subject<string>();
+
+  constructor(private readonly http: HttpClient) {}
 
   ngOnInit(): void {
-    this.initializeMonthAndLoad();
+    this.monthLoad$
+      .pipe(
+        tap(() => {
+          this.loading = true;
+          this.message = '';
+        }),
+        switchMap((month) => this.fetchMonthAnalysis(month)),
+        takeUntil(this.destroy$),
+      )
+      .subscribe({
+        next: (result) => this.applyMonthResult(result),
+        error: () => {
+          this.loading = false;
+          this.clearMonthData();
+          this.message = 'Αποτυχία φόρτωσης ανάλυσης.';
+        },
+      });
+
+    this.initializeDefaultMonth();
+  }
+
+  ngOnDestroy(): void {
+    this.destroy$.next();
+    this.destroy$.complete();
   }
 
   onMonthChange(month: string): void {
-    if (!month) return;
+    if (!month || month === this.selectedMonth) return;
     this.selectedMonth = month;
-    this.loadAnalysisForMonth(month);
+    this.monthLoad$.next(month);
   }
 
-  private initializeMonthAndLoad(): void {
-    this.loading = true;
-    this.http
-      .get<Invoice[]>(`${API_BASE}/api/invoices/?building_scope=1`)
-      .pipe(finalize(() => (this.loading = false)))
+  private initializeDefaultMonth(): void {
+    forkJoin({
+      invoices: this.http
+        .get<Invoice[]>(`${API_BASE}/api/invoices/?building_scope=1`)
+        .pipe(catchError(() => of([] as Invoice[]))),
+      expenses: this.http
+        .get<ExpenseItem[]>(`${API_BASE}/api/accounting/expenses/`)
+        .pipe(catchError(() => of([] as ExpenseItem[]))),
+    })
+      .pipe(takeUntil(this.destroy$))
       .subscribe({
-        next: (allInvoices) => {
-          const months = allInvoices
-            .filter((invoice) => invoice.status === 'issued' || invoice.status === 'paid')
-            .map((invoice) => invoice.month)
-            .sort()
-            .reverse();
-          if (months.length) {
-            this.selectedMonth = months[0];
+        next: ({ invoices, expenses }) => {
+          const months = new Set<string>();
+          for (const invoice of invoices) {
+            if (invoice.status === 'issued' || invoice.status === 'paid') {
+              months.add(invoice.month);
+            }
           }
-          this.loadAnalysisForMonth(this.selectedMonth);
+          for (const expense of expenses) {
+            if (expense.month) {
+              months.add(expense.month);
+            }
+          }
+          const sorted = [...months].sort().reverse();
+          if (sorted.length) {
+            this.selectedMonth = sorted[0];
+          }
+          this.monthLoad$.next(this.selectedMonth);
         },
         error: () => {
           this.message = 'Αποτυχία φόρτωσης δεδομένων ανάλυσης.';
+          this.monthLoad$.next(this.selectedMonth);
         },
       });
   }
 
-  private loadAnalysisForMonth(month: string): void {
-    this.loading = true;
-    this.message = '';
-    const expenses$ = this.http
-      .get<ExpenseItem[]>(`${API_BASE}/api/accounting/expenses/?month=${month}`)
-      .pipe(catchError(() => of([] as ExpenseItem[])));
-
-    forkJoin({
-      expenses: expenses$,
+  private fetchMonthAnalysis(month: string) {
+    return forkJoin({
+      expenses: this.http
+        .get<ExpenseItem[]>(`${API_BASE}/api/accounting/expenses/?month=${month}`)
+        .pipe(catchError(() => of([] as ExpenseItem[]))),
       invoices: this.http
         .get<Invoice[]>(`${API_BASE}/api/invoices/?month=${month}&building_scope=1`)
         .pipe(catchError(() => of([] as Invoice[]))),
-    })
-      .pipe(finalize(() => (this.loading = false)))
-      .subscribe({
-        next: ({ expenses, invoices }) => {
-          this.expenses = expenses;
-          this.invoices = [...invoices].sort((a, b) => a.apartment_unit_code.localeCompare(b.apartment_unit_code, 'el'));
-          this.totalExpenses = this.expenses
-            .filter((item) => !isFundIncreaseCategory(item.expense_category))
-            .reduce((sum, item) => sum + Number(item.amount || 0), 0);
-          this.totalInvoices = this.invoices.reduce((sum, inv) => sum + Number(inv.invoice_total || 0), 0);
-          this.analysisRows = this.invoices.map((inv) => {
-            const amount = Number(inv.invoice_total || 0);
-            return {
-              apartmentUnitCode: inv.apartment_unit_code,
-              heatingRadiatorsTotal: inv.heating_radiators_total,
-              heatedWaterEnergyTotal: inv.heated_water_energy_total,
-              waterConsumptionTotal: inv.water_consumption_total,
-              commonRecurringTotal: inv.common_recurring_total,
-              commonNonRecurringTotal: inv.common_non_recurring_total,
-              ownersOnlyTotal: inv.owners_only_total,
-              invoiceTotal: inv.invoice_total,
-              sharePercent: this.totalInvoices > 0 ? (amount / this.totalInvoices) * 100 : 0,
-            };
-          });
+    }).pipe(
+      switchMap(({ expenses, invoices }) => {
+        const issued = invoices.filter((inv) => inv.status === 'issued' || inv.status === 'paid');
+        if (issued.length) {
+          return of(this.buildResultFromInvoices(month, expenses, issued, false, null));
+        }
+        return this.http
+          .get<{ items: DraftInvoiceItem[] }>(`${API_BASE}/api/invoices/preview/?month=${month}`)
+          .pipe(
+            map((preview) =>
+              this.buildResultFromPreview(month, expenses, preview.items, null),
+            ),
+            catchError((err) => {
+              const detail = err?.error?.detail as string | undefined;
+              return of(
+                this.buildResultFromPreview(month, expenses, [], detail || 'Αποτυχία προεπισκόπησης.'),
+              );
+            }),
+          );
+      }),
+    );
+  }
 
-          if (!this.analysisRows.length && !this.expenses.length) {
-            this.message = 'No data for this month.';
-          } else if (!this.analysisRows.length && this.expenses.length) {
-            this.message = 'No invoices were found for this month.';
-          }
-        },
-        error: () => {
-          this.expenses = [];
-          this.invoices = [];
-          this.analysisRows = [];
-          this.totalExpenses = 0;
-          this.totalInvoices = 0;
-          this.message = 'Failed to load full analysis.';
-        },
-      });
+  private buildResultFromInvoices(
+    month: string,
+    expenses: ExpenseItem[],
+    invoices: Invoice[],
+    isPreview: boolean,
+    previewError: string | null,
+  ): MonthLoadResult {
+    const sorted = [...invoices].sort((a, b) =>
+      a.apartment_unit_code.localeCompare(b.apartment_unit_code, 'el'),
+    );
+    const totalExpenses = expenses
+      .filter((item) => !isFundIncreaseCategory(item.expense_category))
+      .reduce((sum, item) => sum + Number(item.amount || 0), 0);
+    const totalInvoices = sorted.reduce((sum, inv) => sum + Number(inv.invoice_total || 0), 0);
+    const analysisRows = sorted.map((inv) => {
+      const amount = Number(inv.invoice_total || 0);
+      return {
+        apartmentUnitCode: inv.apartment_unit_code,
+        heatingRadiatorsTotal: inv.heating_radiators_total,
+        heatedWaterEnergyTotal: inv.heated_water_energy_total,
+        waterConsumptionTotal: inv.water_consumption_total,
+        commonRecurringTotal: inv.common_recurring_total,
+        commonNonRecurringTotal: inv.common_non_recurring_total,
+        ownersOnlyTotal: inv.owners_only_total,
+        invoiceTotal: inv.invoice_total,
+        sharePercent: totalInvoices > 0 ? (amount / totalInvoices) * 100 : 0,
+      };
+    });
+    return { month, expenses, analysisRows, totalExpenses, totalInvoices, isPreview, previewError };
+  }
+
+  private buildResultFromPreview(
+    month: string,
+    expenses: ExpenseItem[],
+    items: DraftInvoiceItem[],
+    previewError: string | null,
+  ): MonthLoadResult {
+    const sorted = [...items].sort((a, b) =>
+      a.apartment_unit_code.localeCompare(b.apartment_unit_code, 'el'),
+    );
+    const totalExpenses = expenses
+      .filter((item) => !isFundIncreaseCategory(item.expense_category))
+      .reduce((sum, item) => sum + Number(item.amount || 0), 0);
+    const totalInvoices = sorted.reduce((sum, item) => sum + Number(item.invoice_total || 0), 0);
+    const analysisRows = sorted.map((item) => {
+      const amount = Number(item.invoice_total || 0);
+      return {
+        apartmentUnitCode: item.apartment_unit_code,
+        heatingRadiatorsTotal: item.heating_radiators_total,
+        heatedWaterEnergyTotal: item.heated_water_energy_total,
+        waterConsumptionTotal: item.water_consumption_total,
+        commonRecurringTotal: item.common_recurring_total,
+        commonNonRecurringTotal: item.common_non_recurring_total,
+        ownersOnlyTotal: item.owners_only_total,
+        invoiceTotal: item.invoice_total,
+        sharePercent: totalInvoices > 0 ? (amount / totalInvoices) * 100 : 0,
+      };
+    });
+    return {
+      month,
+      expenses,
+      analysisRows,
+      totalExpenses,
+      totalInvoices,
+      isPreview: sorted.length > 0,
+      previewError,
+    };
+  }
+
+  private applyMonthResult(result: MonthLoadResult): void {
+    if (result.month !== this.selectedMonth) {
+      return;
+    }
+    this.expenses = result.expenses;
+    this.analysisRows = result.analysisRows;
+    this.totalExpenses = result.totalExpenses;
+    this.totalInvoices = result.totalInvoices;
+    this.isPreview = result.isPreview;
+    this.loading = false;
+    this.message = '';
+
+    if (!this.analysisRows.length && !this.expenses.length) {
+      this.message = 'Δεν υπάρχουν δεδομένα για αυτόν τον μήνα.';
+    } else if (!this.analysisRows.length && this.expenses.length) {
+      this.message =
+        result.previewError ||
+        'Υπάρχουν έξοδα αλλά δεν ήταν δυνατός ο υπολογισμός κατανομής. Ελέγξτε μετρήσεις και εκδώστε λογαριασμούς.';
+    }
+  }
+
+  private clearMonthData(): void {
+    this.expenses = [];
+    this.analysisRows = [];
+    this.totalExpenses = 0;
+    this.totalInvoices = 0;
+    this.isPreview = false;
   }
 }

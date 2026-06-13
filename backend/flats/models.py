@@ -159,6 +159,22 @@ class HeatedWaterMeasurementInput(models.Model):
         return f"{self.apartment} · hot water · {self.measurement_date}"
 
 
+class BuildingMeasurementInput(models.Model):
+    building = models.ForeignKey(Building, on_delete=models.CASCADE, related_name="building_measurements")
+    measurement_date = models.DateField()
+    hot_water_heating_current_reading = models.DecimalField(max_digits=14, decimal_places=4, default=0)
+    hot_water_heating_units = models.DecimalField(max_digits=12, decimal_places=4, default=0)
+    created_by_user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        unique_together = ("building", "measurement_date")
+
+    def __str__(self) -> str:
+        return f"{self.building} · boiler HW · {self.measurement_date}"
+
+
 class ExpenseItem(models.Model):
     class Category(models.TextChoices):
         GARDENER = "gardener", "Κηπουρός"
@@ -166,7 +182,7 @@ class ExpenseItem(models.Model):
         COMMON_WATER = "common_water_usage", "Κοινόχρηστο νερό"
         CLEANING = "cleaning", "Καθαρισμός"
         ELEVATOR = "elevator_service", "Συντήρηση ανελκυστήρα"
-        GAS_HEATING = "gas_heating_bill", "Φυσικό αερίο θέρμανσης"
+        GAS_HEATING = "gas_heating_bill", "Φυσικό αέριο (συνολικό)"
         WATER_HW_CONSUMPTION = "water_hw_consumption_bill", "Κατανάλωση ζεστού νερού"
         GAS_HW_CONSUMPTION = "gas_hw_consumption_bill", "Φυσικο αέριο ζεστού νερού"
         DAMAGES = "damages", "Ζημιές"

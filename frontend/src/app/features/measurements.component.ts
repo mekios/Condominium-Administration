@@ -14,8 +14,15 @@ type MonthItem = {
   measurement_date: string;
   heating_entries: number;
   heated_water_entries: number;
+  building_entry?: boolean;
   apartments_total: number;
   locked: boolean;
+};
+
+type BuildingMeasurementFields = {
+  building_previous_hot_water_heating_reading?: string;
+  building_hot_water_heating_current_reading?: string;
+  building_hot_water_heating_units?: string;
 };
 
 type MonthDetailRow = {
@@ -38,7 +45,7 @@ type EntryRow = {
   previous_heated_water_reading: string;
 };
 
-type EntryFormResponse = {
+type EntryFormResponse = BuildingMeasurementFields & {
   measurement_date: string;
   rows: EntryRow[];
 };
@@ -132,6 +139,20 @@ type EntryFormResponse = {
                     />
                   </td>
                   <td class="units">{{ calculateDiff(heatedWaterCurrentByApt[row.apartment_id], row.previous_heated_water_reading) }}</td>
+                </tr>
+                <tr class="building-row">
+                  <td class="apt-col"><strong>Λέβητας ζεστού νερού (κτίριο)</strong></td>
+                  <td class="muted">{{ formatOneDecimal(buildingPreviousReading) }}</td>
+                  <td>
+                    <input
+                      type="number"
+                      step="0.1"
+                      placeholder="—"
+                      [(ngModel)]="buildingCurrentReading"
+                    />
+                  </td>
+                  <td class="units">{{ calculateDiff(buildingCurrentReading, buildingPreviousReading) }}</td>
+                  <td colspan="3"></td>
                 </tr>
               </tbody>
             </table>
@@ -270,6 +291,16 @@ type EntryFormResponse = {
                                 <td class="units" *ngIf="!editingDetail">{{ calculateDiff(row.heated_water_current_reading, row.previous_heated_water_reading) }}</td>
                                 <td class="units" *ngIf="editingDetail">{{ calculateDiff(editWaterByApt[row.apartment_id], row.previous_heated_water_reading) }}</td>
                               </tr>
+                              <tr class="building-row">
+                                <td class="apt-col"><strong>Λέβητας ζεστού νερού (κτίριο)</strong></td>
+                                <td class="muted">{{ formatOneDecimal(buildingPreviousReading) }}</td>
+                                <td *ngIf="!editingDetail">{{ formatOneDecimal(buildingCurrentReading) }}</td>
+                                <td *ngIf="editingDetail">
+                                  <input type="number" step="0.1" [(ngModel)]="buildingCurrentReading" />
+                                </td>
+                                <td class="units">{{ calculateDiff(buildingCurrentReading, buildingPreviousReading) }}</td>
+                                <td colspan="3"></td>
+                              </tr>
                             </tbody>
                           </table>
                         </div>
@@ -405,6 +436,13 @@ type EntryFormResponse = {
       font-variant-numeric: tabular-nums;
       color: #cfe0ff;
       font-weight: 600;
+    }
+    .building-row td {
+      border-top: 1px solid #2a3a5c;
+      background: #0d1528;
+    }
+    .building-row strong {
+      color: #d4e0ff;
     }
     .badge {
       display: inline-block;
@@ -561,6 +599,8 @@ export class MeasurementsComponent implements OnInit {
   message = '';
   heatingCurrentByApt: Record<number, string> = {};
   heatedWaterCurrentByApt: Record<number, string> = {};
+  buildingPreviousReading = '0';
+  buildingCurrentReading = '';
 
   constructor(
     private readonly data: AppDataService,
@@ -624,6 +664,8 @@ export class MeasurementsComponent implements OnInit {
     this.entryRows = [];
     this.heatingCurrentByApt = {};
     this.heatedWaterCurrentByApt = {};
+    this.buildingPreviousReading = '0';
+    this.buildingCurrentReading = '';
   }
 
   toggleDate(measurementDate: string): void {
@@ -645,12 +687,13 @@ export class MeasurementsComponent implements OnInit {
         measurement_date: string;
         locked: boolean;
         rows: MonthDetailRow[];
-      }>(`${API_BASE}/api/accounting/heating-inputs/date-detail/?measurement_date=${measurementDate}`)
+      } & BuildingMeasurementFields>(`${API_BASE}/api/accounting/heating-inputs/date-detail/?measurement_date=${measurementDate}`)
       .pipe(finalize(() => (this.loadingDetails = false)))
       .subscribe({
         next: (response) => {
           this.expandedRows = this.sortRowsByUnitCode(response.rows);
           this.detailLocked = response.locked;
+          this.applyBuildingFields(response);
         },
         error: (error) => {
           this.message = error?.error?.detail || 'Αποτυχία φόρτωσης αναλυτικών μετρήσεων.';
@@ -665,6 +708,14 @@ export class MeasurementsComponent implements OnInit {
     this.detailLocked = false;
     this.editHeatingByApt = {};
     this.editWaterByApt = {};
+    this.buildingPreviousReading = '0';
+    this.buildingCurrentReading = '';
+  }
+
+  private applyBuildingFields(fields: BuildingMeasurementFields): void {
+    this.buildingPreviousReading = fields.building_previous_hot_water_heating_reading || '0';
+    const current = fields.building_hot_water_heating_current_reading?.toString().trim();
+    this.buildingCurrentReading = current ? Number(current).toString() : '';
   }
 
   startEditDetail(): void {
@@ -698,12 +749,17 @@ export class MeasurementsComponent implements OnInit {
       this.message = `Συμπληρώστε και τις δύο μετρήσεις για το διαμέρισμα ${incomplete.apartment_label}.`;
       return;
     }
+    if (!this.buildingCurrentReading?.toString().trim()) {
+      this.message = 'Συμπληρώστε την ένδειξη λέβητα ζεστού νερού κτιρίου.';
+      return;
+    }
 
     this.savingDetail = true;
     this.message = '';
     this.http
       .post<{ detail: string }>(`${API_BASE}/api/accounting/heating-inputs/monthly-upsert/`, {
         measurement_date: this.expandedDate,
+        building_hot_water_heating_reading: this.buildingCurrentReading,
         rows: this.expandedRows.map((row) => ({
           apartment_id: row.apartment_id,
           heating_current_reading: this.editHeatingByApt[row.apartment_id],
@@ -735,6 +791,7 @@ export class MeasurementsComponent implements OnInit {
     this.loadingEntryForm = true;
     this.heatingCurrentByApt = {};
     this.heatedWaterCurrentByApt = {};
+    this.buildingCurrentReading = '';
     this.http
       .get<EntryFormResponse>(
         `${API_BASE}/api/accounting/heating-inputs/entry-form/?measurement_date=${measurementDate}`,
@@ -744,6 +801,7 @@ export class MeasurementsComponent implements OnInit {
         next: (response) => {
           this.entryRows = this.sortRowsByUnitCode(response.rows);
           this.entryDate = response.measurement_date;
+          this.applyBuildingFields(response);
           this.entryRows.forEach((row) => {
             this.heatingCurrentByApt[row.apartment_id] = '';
             this.heatedWaterCurrentByApt[row.apartment_id] = '';
@@ -829,11 +887,16 @@ export class MeasurementsComponent implements OnInit {
       this.message = `Συμπληρώστε και τις δύο μετρήσεις για το διαμέρισμα ${incomplete.apartment_label}.`;
       return;
     }
+    if (!this.buildingCurrentReading?.toString().trim()) {
+      this.message = 'Συμπληρώστε την ένδειξη λέβητα ζεστού νερού κτιρίου.';
+      return;
+    }
 
     this.saving = true;
     this.http
       .post<{ detail: string }>(`${API_BASE}/api/accounting/heating-inputs/monthly-upsert/`, {
         measurement_date: this.entryDate,
+        building_hot_water_heating_reading: this.buildingCurrentReading,
         rows: this.entryRows.map((row) => ({
           apartment_id: row.apartment_id,
           heating_current_reading: this.heatingCurrentByApt[row.apartment_id],

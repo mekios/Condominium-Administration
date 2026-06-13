@@ -4,6 +4,7 @@ from .models import (
     Apartment,
     ApartmentUser,
     Building,
+    BuildingMeasurementInput,
     DesignatedVoter,
     ExpenseItem,
     HeatingMeasurementInput,
@@ -79,5 +80,6 @@ class ApartmentUserAdmin(admin.ModelAdmin):
 admin.site.register(DesignatedVoter)
 admin.site.register(HeatingMeasurementInput)
 admin.site.register(HeatedWaterMeasurementInput)
+admin.site.register(BuildingMeasurementInput)
 admin.site.register(ExpenseItem)
 admin.site.register(Invoice)

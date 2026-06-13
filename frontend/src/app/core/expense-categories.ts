@@ -14,14 +14,18 @@ export const EXPENSE_CATEGORIES: ExpenseCategoryConfig[] = [
   { value: 'common_water_usage', label: 'Κοινόχρηστο νερό', iconPath: 'M12 22a7 7 0 0 0 7-7c0-2-1-3.9-3-5.5s-3.5-4-4-6.5c-.5 2.5-2 4.9-4 6.5C6 11.1 5 13 5 15a7 7 0 0 0 7 7z', useDescriptionAsLabel: false },
   { value: 'cleaning', label: 'Καθαρισμός', iconPath: 'M16 3l2 2-6 6v2h-2v-2zM6 14h8l2 6H4zM7 15v4M9 15v4M11 15v4M13 15v4', useDescriptionAsLabel: false },
   { value: 'elevator_service', label: 'Συντήρηση ανελκυστήρα', iconPath: 'M7 3h10v18H7zM9 8h6M9 16h6M12 6l-2 2h4l-2-2zM12 18l2-2h-4l2 2z', useDescriptionAsLabel: false },
-  { value: 'gas_heating_bill', label: 'Φυσικό αέριο θέρμανσης', iconPath: 'M8.5 14.5A2.5 2.5 0 0 0 11 12c0-1.38-.5-2-1-3-1.072-2.143-.224-4.054 2-6 .5 2.5 2 4.9 4 6.5 2 1.6 3 3.5 3 5.5a7 7 0 1 1-14 0c0-1.153.433-2.294 1-3a2.5 2.5 0 0 0 2.5 2.5z', useDescriptionAsLabel: false },
+  { value: 'gas_heating_bill', label: 'Φυσικό αέριο (συνολικό)', iconPath: 'M8.5 14.5A2.5 2.5 0 0 0 11 12c0-1.38-.5-2-1-3-1.072-2.143-.224-4.054 2-6 .5 2.5 2 4.9 4 6.5 2 1.6 3 3.5 3 5.5a7 7 0 1 1-14 0c0-1.153.433-2.294 1-3a2.5 2.5 0 0 0 2.5 2.5z', useDescriptionAsLabel: false },
   { value: 'water_hw_consumption_bill', label: 'Κατανάλωση ζεστού νερού', iconPath: 'M12 2.69l5.66 5.66a8 8 0 1 1-11.31 0z', useDescriptionAsLabel: false },
-  { value: 'gas_hw_consumption_bill', label: 'Φυσικό αέριο ζεστού νερού', iconPath: 'M8.5 14.5A2.5 2.5 0 0 0 11 12c0-1.38-.5-2-1-3-1.072-2.143-.224-4.054 2-6 .5 2.5 2 4.9 4 6.5 2 1.6 3 3.5 3 5.5a7 7 0 1 1-14 0c0-1.153.433-2.294 1-3a2.5 2.5 0 0 0 2.5 2.5z', useDescriptionAsLabel: false },
   { value: 'damages', label: 'Ζημιές', iconPath: 'M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z', useDescriptionAsLabel: true },
   { value: 'annual_servicing', label: 'Ετήσια συντήρηση', iconPath: 'M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z', useDescriptionAsLabel: true },
   { value: 'owners_only', label: 'Έξοδα μόνο ιδιοκτητών', iconPath: 'M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4', useDescriptionAsLabel: true },
   { value: 'fund_increase', label: 'Αύξηση αποθεματικού', iconPath: 'M5.5 17a6.5 1.7 0 1 0 13 0a6.5 1.7 0 1 0 -13 0M6.5 12.5a5.5 1.5 0 1 0 11 0a5.5 1.5 0 1 0 -11 0M7.5 8.5a4.5 1.3 0 1 0 9 0a4.5 1.3 0 1 0 -9 0', useDescriptionAsLabel: true },
   { value: 'other', label: 'Λοιπά', iconPath: 'M9 5h6M9 9h6M9 13h6', useDescriptionAsLabel: true },
+];
+
+/** Legacy categories kept for display of historical rows only — not selectable for new entries. */
+const DEPRECATED_EXPENSE_CATEGORIES: ExpenseCategoryConfig[] = [
+  { value: 'gas_hw_consumption_bill', label: 'Φυσικό αέριο ζεστού νερού', iconPath: 'M8.5 14.5A2.5 2.5 0 0 0 11 12c0-1.38-.5-2-1-3-1.072-2.143-.224-4.054 2-6 .5 2.5 2 4.9 4 6.5 2 1.6 3 3.5 3 5.5a7 7 0 1 1-14 0c0-1.153.433-2.294 1-3a2.5 2.5 0 0 0 2.5 2.5z', useDescriptionAsLabel: false },
 ];
 
 const DESCRIPTION_AS_LABEL_VALUES = new Set(
@@ -33,7 +37,8 @@ export function categoryUsesDescriptionAsLabel(value: string): boolean {
 }
 
 export function getCategoryConfig(value: string): ExpenseCategoryConfig | undefined {
-  return EXPENSE_CATEGORIES.find((c) => c.value === value);
+  return EXPENSE_CATEGORIES.find((c) => c.value === value)
+    ?? DEPRECATED_EXPENSE_CATEGORIES.find((c) => c.value === value);
 }
 
 export function getDisplayLabel(expense: { expense_category: string; description?: string }): string {

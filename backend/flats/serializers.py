@@ -135,11 +135,15 @@ class ExpenseItemSerializer(serializers.ModelSerializer):
         categories_requiring_range = {
             ExpenseItem.Category.GAS_HEATING,
             ExpenseItem.Category.WATER_HW_CONSUMPTION,
-            ExpenseItem.Category.GAS_HW_CONSUMPTION,
         }
         if category in categories_requiring_range and (not affected_start or not affected_end):
             raise serializers.ValidationError(
                 "Για θέρμανση/ζεστό νερό απαιτείται εύρος ημερομηνιών μετρήσεων (affected_period_start/affected_period_end)."
+            )
+        if category == ExpenseItem.Category.GAS_HW_CONSUMPTION and self.instance is None:
+            raise serializers.ValidationError(
+                "Η κατηγορία «Φυσικό αέριο ζεστού νερού» δεν υποστηρίζεται πλέον. "
+                "Χρησιμοποιήστε «Φυσικό αέριο (συνολικό)»."
             )
         if category == ExpenseItem.Category.FUND_INCREASE:
             attrs["affected_period_start"] = None
@@ -288,6 +292,7 @@ class MonthlyMeasurementRowSerializer(serializers.Serializer):
 
 class MonthlyMeasurementUpsertSerializer(serializers.Serializer):
     measurement_date = serializers.DateField()
+    building_hot_water_heating_reading = serializers.DecimalField(max_digits=14, decimal_places=1, required=False)
     rows = MonthlyMeasurementRowSerializer(many=True)
 
 

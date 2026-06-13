@@ -46,44 +46,47 @@ Inputs:
   - `e_a` (factor `ei`)
   - `f_a` (factor `fi`)
   - `units_counted_a` (`UnitsCounted`, derived from reading delta)
+- For the building boiler (central calorimeter for heating water), stored in `BuildingMeasurementInput`:
+  - `building_hw_units` = delta of `hot_water_heating_current_reading` over the billing period (same boundary logic as apartments when `affected_period_start/end` are set)
 - For the billing period:
-  - `sum_units_counted = sum(units_counted_a for all apartments)`
-  - `gas_total` = total gas-heating bill amount for the month (may be missing for a given month)
+  - `sum_heating_units = sum(units_counted_a for all apartments)`
+  - `total_energy = sum_heating_units + building_hw_units`
+  - `gas_total` = single expense in category `gas_heating_bill` («Φυσικό αέριο (συνολικό)») for the month
 
-Apartment radiator-heating formula (exact):
+Split of the single gas bill:
+- `gas_radiator_amount = gas_total × sum_heating_units / total_energy`
+- `gas_hw_amount = gas_total × building_hw_units / total_energy`
+
+Apartment radiator-heating formula (exact, applied to `gas_radiator_amount`):
 - Let:
   - `fixed_component_a = f_a * e_a`
   - `sum_fixed = sum(f_i * e_i for all apartments)`
   - `variable_component_a = (units_counted_a / sum_units_counted) * (1 - sum_fixed)`
 - Then:
   - `radiator_share_a = fixed_component_a + variable_component_a`
-  - `radiator_heating_amount(a) = radiator_share_a * gas_total`
+  - `radiator_heating_amount(a) = radiator_share_a * gas_radiator_amount`
 
 Equivalent compact form (your formula):
-- `((f_a * e_a) + (units_counted_a / sum_units_counted) * (1 - sum(f_i * e_i))) * gas_total = amount_apartment_must_pay`
+- `((f_a * e_a) + (units_counted_a / sum_units_counted) * (1 - sum(f_i * e_i))) * gas_radiator_amount = amount_apartment_must_pay`
 
-Step A: carve out heating-water energy part first
-- Let:
-  - `gas_heating_water_amount` = part of gas bill assigned to heated water (derived from heated-water rules/measurements)
-- Then:
-  - `gas_radiator_amount = gas_total - gas_heating_water_amount`
+Heating-water gas portion allocation:
+- `heated_water_energy_amount(a) = gas_hw_amount * (V_apartment / sum(V_apartment))`
+- where `V_apartment` is the heating-water volume computed in section 4.
 
-Use your formula on radiator portion:
-- `radiator_heating_amount(a) = radiator_share_a * gas_radiator_amount`
-
-Step B: allocate the gas parts to apartments
-- Heating-water portion allocation:
-  - `heated_water_energy_amount(a) = gas_heating_water_amount * (V_apartment / sum(V_apartment))`
-  - where `V_apartment` is the heating-water volume computed in section 4.
+Policy:
+- Use **one** gas expense category (`gas_heating_bill`) per billing period; the legacy `gas_hw_consumption_bill` category is deprecated and must not be combined with the combined gas bill for the same period.
+- If `total_energy == 0`, invoice generation is blocked.
 
 Implementation guidance (to make this deterministic):
 - Store both:
   - the inputs used to compute `radiator_share_a` (`e_a`, `f_a`, `units_counted_a`)
   - the computed result `radiator_heating_amount(a)`
 - Store billing-period aggregate snapshots used during calculation:
-  - `sum_units_counted`
+  - `sum_heating_units`
+  - `building_hw_units`
   - `sum_fixed`
   - `gas_radiator_amount`
+  - `gas_hw_amount`
 
 Edge case: missing expenses
 - If `gas_total` is missing for a month, then both `radiator_heating_amount` and `heated_water_energy_amount` for that month are `0` even though measurements still exist.

@@ -11,6 +11,11 @@ import {
   shiftCalendarMonth,
   shiftDate,
 } from '../date.utils';
+import {
+  formatRecentDateLabel,
+  loadRecentDates,
+  rememberRecentDate,
+} from './recent-dates.storage';
 
 @Component({
   standalone: true,
@@ -38,11 +43,11 @@ import {
           [disabled]="disabled"
           [attr.aria-expanded]="panelOpen"
         >
-          <ng-container *ngIf="parts as p; else emptyLabel">
+          <ng-container *ngIf="parts as p; else emptyStateTpl">
             <span class="date-primary">{{ p.primary }}</span>
             <span class="date-secondary">{{ p.secondary }}</span>
           </ng-container>
-          <ng-template #emptyLabel>
+          <ng-template #emptyStateTpl>
             <span class="empty-text">{{ emptyLabel }}</span>
           </ng-template>
         </button>
@@ -69,6 +74,18 @@ import {
         <div class="shortcuts">
           <button type="button" class="shortcut" (click)="pickDate(currentDate())">Σήμερα</button>
           <button type="button" class="shortcut" (click)="pickDate(shiftDate(currentDate(), -1))">Χθες</button>
+        </div>
+
+        <div class="shortcuts recent" *ngIf="recentDates.length">
+          <span class="shortcuts-caption">Συχνές</span>
+          <button
+            type="button"
+            class="shortcut recent"
+            *ngFor="let date of recentDates"
+            (click)="pickDate(date)"
+          >
+            {{ formatRecentDateLabel(date) }}
+          </button>
         </div>
 
         <div class="calendar-nav">
@@ -250,6 +267,31 @@ import {
       flex-wrap: wrap;
       gap: 0.4rem;
       margin-bottom: 0.75rem;
+      align-items: center;
+    }
+
+    .shortcuts.recent {
+      padding-top: 0.15rem;
+      border-top: 1px solid #243152;
+    }
+
+    .shortcuts-caption {
+      width: 100%;
+      font-size: 0.72rem;
+      font-weight: 700;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      color: #8fa3d4;
+    }
+
+    .shortcut.recent {
+      background: rgba(125, 255, 176, 0.08);
+      border-color: rgba(125, 255, 176, 0.35);
+    }
+
+    .shortcut.recent:hover {
+      background: rgba(125, 255, 176, 0.16);
+      border-color: rgba(125, 255, 176, 0.55);
     }
 
     .shortcut {
@@ -347,10 +389,12 @@ export class DatePickerComponent {
   readonly currentDate = currentDate;
   readonly shiftDate = shiftDate;
   readonly calendarMonthLabel = calendarMonthLabel;
+  readonly formatRecentDateLabel = formatRecentDateLabel;
 
   panelOpen = false;
   viewYear = new Date().getFullYear();
   viewMonth = new Date().getMonth() + 1;
+  recentDates: string[] = [];
 
   get parts() {
     return formatDateParts(this.value);
@@ -370,6 +414,7 @@ export class DatePickerComponent {
     const parsed = parseIsoDate(this.value) ?? parseIsoDate(currentDate())!;
     this.viewYear = parsed.year;
     this.viewMonth = parsed.month;
+    this.recentDates = loadRecentDates();
     this.panelOpen = true;
   }
 
@@ -399,6 +444,9 @@ export class DatePickerComponent {
   }
 
   private emitDate(value: string): void {
+    if (!parseIsoDate(value)) return;
+    rememberRecentDate(value);
+    this.recentDates = loadRecentDates();
     this.value = value;
     this.valueChange.emit(value);
   }

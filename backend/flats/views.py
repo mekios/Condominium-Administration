@@ -24,6 +24,7 @@ from .models import (
     Apartment,
     ApartmentUser,
     Building,
+    BuildingMeasurementInput,
     DesignatedVoter,
     ExpenseItem,
     HeatedWaterMeasurementInput,
@@ -726,6 +727,112 @@ def _send_invoice_email(invoice: Invoice, invoice_filename: str, invoice_pdf: by
     return dispatch
 
 
+def _measurement_building_ids_for_user(user) -> list[int]:
+    apartments = _visible_apartments_for_measurements(user)
+    return list(apartments.values_list("building_id", flat=True).distinct())
+
+
+def _building_hw_units_for_period(
+    building_id: int,
+    *,
+    affected_period_start: date | None,
+    affected_period_end: date | None,
+    month: str,
+) -> Decimal:
+    qs = BuildingMeasurementInput.objects.filter(building_id=building_id).order_by("measurement_date", "id")
+    rows = list(qs)
+    if not rows:
+        return Decimal("0")
+
+    if affected_period_start and affected_period_end:
+        start_row = min(rows, key=lambda row: abs((row.measurement_date - affected_period_start).days))
+        end_row = min(rows, key=lambda row: abs((row.measurement_date - affected_period_end).days))
+        delta = Decimal(end_row.hot_water_heating_current_reading) - Decimal(start_row.hot_water_heating_current_reading)
+        return delta if delta > Decimal("0") else Decimal("0")
+
+    year, month_no = parse_month(month)
+    return sum(
+        (
+            Decimal(row.hot_water_heating_units)
+            for row in rows
+            if row.measurement_date.year == year and row.measurement_date.month == month_no
+        ),
+        Decimal("0"),
+    )
+
+
+def _previous_building_hot_water_reading(building_id: int, measurement_date) -> Decimal:
+    prev = (
+        BuildingMeasurementInput.objects.filter(building_id=building_id, measurement_date__lt=measurement_date)
+        .order_by("-measurement_date")
+        .first()
+    )
+    return Decimal(prev.hot_water_heating_current_reading) if prev else Decimal("0")
+
+
+def _building_measurement_detail(building_id: int, measurement_date) -> dict:
+    prev_reading = _previous_building_hot_water_reading(building_id, measurement_date)
+    current = BuildingMeasurementInput.objects.filter(building_id=building_id, measurement_date=measurement_date).first()
+    current_reading = current.hot_water_heating_current_reading if current else None
+    units = current.hot_water_heating_units if current else None
+    return {
+        "building_previous_hot_water_heating_reading": str(prev_reading),
+        "building_hot_water_heating_current_reading": str(current_reading) if current_reading is not None else "",
+        "building_hot_water_heating_units": str(units) if units is not None else "",
+    }
+
+
+def _finalize_measurement_context(
+    building_apartments,
+    *,
+    apartment_units: dict[int, Decimal],
+    apartment_fixed: dict[int, Decimal],
+    volume_map: dict[int, Decimal],
+    expense: ExpenseItem,
+    month: str,
+) -> tuple[dict | None, str | None]:
+    building_id = building_apartments[0].building_id
+    sum_units = sum(apartment_units.values(), Decimal("0"))
+    sum_fixed = sum(apartment_fixed.values(), Decimal("0"))
+    if sum_fixed < Decimal("0") or sum_fixed > Decimal("1"):
+        return None, (
+            f"Μη έγκυροι συντελεστές θέρμανσης για το κτίριο {building_id}: "
+            "Το άθροισμα(fi*ei) πρέπει να είναι μεταξύ 0 και 1."
+        )
+
+    radiator_share_map = {apartment.id: Decimal("0") for apartment in building_apartments}
+    if sum_units > Decimal("0"):
+        for apartment in building_apartments:
+            units = apartment_units.get(apartment.id, Decimal("0"))
+            fixed_component = apartment_fixed.get(apartment.id, Decimal("0"))
+            variable_component = (units / sum_units) * (Decimal("1") - sum_fixed)
+            radiator_share_map[apartment.id] = fixed_component + variable_component
+
+    share_sum = sum(radiator_share_map.values(), Decimal("0"))
+    if share_sum > Decimal("0"):
+        for apartment_id in radiator_share_map.keys():
+            radiator_share_map[apartment_id] = radiator_share_map[apartment_id] / share_sum
+
+    total_volume = sum(volume_map.values(), Decimal("0"))
+    building_hw_units = _building_hw_units_for_period(
+        building_id,
+        affected_period_start=expense.affected_period_start,
+        affected_period_end=expense.affected_period_end,
+        month=month,
+    )
+    sum_heating_units = sum_units
+    total_energy = sum_heating_units + building_hw_units
+
+    return {
+        "radiator_share_map": radiator_share_map,
+        "volume_map": volume_map,
+        "total_volume": total_volume,
+        "sum_heating_units": sum_heating_units,
+        "building_hw_units": building_hw_units,
+        "total_energy": total_energy,
+    }, None
+
+
 def _measurement_context_for_expense(building_apartments, expense: ExpenseItem, month: str):
     apartment_ids = [apartment.id for apartment in building_apartments]
     heating_qs = HeatingMeasurementInput.objects.filter(apartment_id__in=apartment_ids)
@@ -765,37 +872,18 @@ def _measurement_context_for_expense(building_apartments, expense: ExpenseItem, 
                 volume_delta = Decimal(end_w.current_reading) - Decimal(start_w.current_reading)
                 volume_map[apartment.id] = volume_delta if volume_delta > Decimal("0") else Decimal("0")
 
-        sum_units = sum(apartment_units.values(), Decimal("0"))
-        sum_fixed = sum(apartment_fixed.values(), Decimal("0"))
-        if sum_fixed < Decimal("0") or sum_fixed > Decimal("1"):
-            return None, (
-                f"Μη έγκυροι συντελεστές θέρμανσης για το κτίριο {building_apartments[0].building_id}: "
-                "Το άθροισμα(fi*ei) πρέπει να είναι μεταξύ 0 και 1."
-            )
+        return _finalize_measurement_context(
+            building_apartments,
+            apartment_units=apartment_units,
+            apartment_fixed=apartment_fixed,
+            volume_map=volume_map,
+            expense=expense,
+            month=month,
+        )
 
-        radiator_share_map = {apartment.id: Decimal("0") for apartment in building_apartments}
-        if sum_units > Decimal("0"):
-            for apartment in building_apartments:
-                units = apartment_units.get(apartment.id, Decimal("0"))
-                fixed_component = apartment_fixed.get(apartment.id, Decimal("0"))
-                variable_component = (units / sum_units) * (Decimal("1") - sum_fixed)
-                radiator_share_map[apartment.id] = fixed_component + variable_component
-
-        share_sum = sum(radiator_share_map.values(), Decimal("0"))
-        if share_sum > Decimal("0"):
-            for apartment_id in radiator_share_map.keys():
-                radiator_share_map[apartment_id] = radiator_share_map[apartment_id] / share_sum
-
-        total_volume = sum(volume_map.values(), Decimal("0"))
-        return {
-            "radiator_share_map": radiator_share_map,
-            "volume_map": volume_map,
-            "total_volume": total_volume,
-        }, None
-    else:
-        year, month_no = parse_month(month)
-        heating_qs = heating_qs.filter(measurement_date__year=year, measurement_date__month=month_no)
-        water_qs = water_qs.filter(measurement_date__year=year, measurement_date__month=month_no)
+    year, month_no = parse_month(month)
+    heating_qs = heating_qs.filter(measurement_date__year=year, measurement_date__month=month_no)
+    water_qs = water_qs.filter(measurement_date__year=year, measurement_date__month=month_no)
 
     apartment_units = {apartment.id: Decimal("0") for apartment in building_apartments}
     apartment_fixed = {apartment.id: Decimal("0") for apartment in building_apartments}
@@ -804,37 +892,18 @@ def _measurement_context_for_expense(building_apartments, expense: ExpenseItem, 
         if apartment_fixed[heating_input.apartment_id] == Decimal("0"):
             apartment_fixed[heating_input.apartment_id] = Decimal(heating_input.f_factor) * Decimal(heating_input.e_factor)
 
-    sum_units = sum(apartment_units.values(), Decimal("0"))
-    sum_fixed = sum(apartment_fixed.values(), Decimal("0"))
-    if sum_fixed < Decimal("0") or sum_fixed > Decimal("1"):
-        return None, (
-            f"Μη έγκυροι συντελεστές θέρμανσης για το κτίριο {building_apartments[0].building_id}: "
-            "Το άθροισμα(fi*ei) πρέπει να είναι μεταξύ 0 και 1."
-        )
-
-    radiator_share_map = {apartment.id: Decimal("0") for apartment in building_apartments}
-    if sum_units > Decimal("0"):
-        for apartment in building_apartments:
-            units = apartment_units.get(apartment.id, Decimal("0"))
-            fixed_component = apartment_fixed.get(apartment.id, Decimal("0"))
-            variable_component = (units / sum_units) * (Decimal("1") - sum_fixed)
-            radiator_share_map[apartment.id] = fixed_component + variable_component
-
-    share_sum = sum(radiator_share_map.values(), Decimal("0"))
-    if share_sum > Decimal("0"):
-        for apartment_id in radiator_share_map.keys():
-            radiator_share_map[apartment_id] = radiator_share_map[apartment_id] / share_sum
-
     volume_map = {apartment.id: Decimal("0") for apartment in building_apartments}
     for water_input in water_qs:
         volume_map[water_input.apartment_id] += Decimal(water_input.computed_heating_water_volume)
-    total_volume = sum(volume_map.values(), Decimal("0"))
 
-    return {
-        "radiator_share_map": radiator_share_map,
-        "volume_map": volume_map,
-        "total_volume": total_volume,
-    }, None
+    return _finalize_measurement_context(
+        building_apartments,
+        apartment_units=apartment_units,
+        apartment_fixed=apartment_fixed,
+        volume_map=volume_map,
+        expense=expense,
+        month=month,
+    )
 
 
 def _invoice_generation_warnings(month: str, apartments, rows) -> list[str]:
@@ -851,7 +920,6 @@ def _invoice_generation_warnings(month: str, apartments, rows) -> list[str]:
         expenses = expenses_by_building.get(building_id, [])
         has_gas_heating = any(exp.expense_category == ExpenseItem.Category.GAS_HEATING for exp in expenses)
         has_water_hw = any(exp.expense_category == ExpenseItem.Category.WATER_HW_CONSUMPTION for exp in expenses)
-        has_gas_hw = any(exp.expense_category == ExpenseItem.Category.GAS_HW_CONSUMPTION for exp in expenses)
 
         heating_total = sum(rows[apt.id]["heating_radiators_total"] for apt in building_apartments)
         water_total = sum(rows[apt.id]["water_consumption_total"] for apt in building_apartments)
@@ -865,10 +933,19 @@ def _invoice_generation_warnings(month: str, apartments, rows) -> list[str]:
             warnings.append(
                 f"Μήνας {month}: Δεν κατανέμεται το κόστος κατανάλωσης ζεστού νερού για κτίριο {building_id} (μηδενικές/ελλιπείς μετρήσεις)."
             )
-        if has_gas_hw and q2(hw_energy_total) == Decimal("0.00"):
-            warnings.append(
-                f"Μήνας {month}: Δεν κατανέμεται το φυσικό αέριο ζεστού νερού για κτίριο {building_id} (μηδενικές/ελλιπείς μετρήσεις)."
+        if has_gas_heating and q2(hw_energy_total) == Decimal("0.00"):
+            gas_expense = next(exp for exp in expenses if exp.expense_category == ExpenseItem.Category.GAS_HEATING)
+            building_hw_units = _building_hw_units_for_period(
+                building_id,
+                affected_period_start=gas_expense.affected_period_start,
+                affected_period_end=gas_expense.affected_period_end,
+                month=month,
             )
+            if building_hw_units <= Decimal("0"):
+                warnings.append(
+                    f"Μήνας {month}: Δεν κατανέμεται το φυσικό αέριο ζεστού νερού για κτίριο {building_id} "
+                    "(λείπει ένδειξη λέβητα κτιρίου)."
+                )
 
     return warnings
 
@@ -983,13 +1060,30 @@ def _calculate_invoice_rows(month: str):
         breakdown[apartment.id] = []
 
     for building_id, building_apartments in apartments_by_building.items():
-        for expense in expenses_by_building.get(building_id, []):
+        building_expenses = expenses_by_building.get(building_id, [])
+        has_gas_heating = any(exp.expense_category == ExpenseItem.Category.GAS_HEATING for exp in building_expenses)
+        has_gas_hw = any(exp.expense_category == ExpenseItem.Category.GAS_HW_CONSUMPTION for exp in building_expenses)
+        if has_gas_heating and has_gas_hw:
+            return None, {
+                "detail": (
+                    f"Μήνας {month}, κτίριο {building_id}: Υπάρχουν και «Φυσικό αέριο (συνολικό)» "
+                    "και παλαιά κατηγορία «Φυσικό αέριο ζεστού νερού». Διαγράψτε την παλαιά καταχώριση."
+                )
+            }
+
+        for expense in building_expenses:
             if expense.expense_category == ExpenseItem.Category.FUND_INCREASE:
                 continue
+            if expense.expense_category == ExpenseItem.Category.GAS_HW_CONSUMPTION:
+                return None, {
+                    "detail": (
+                        "Η κατηγορία «Φυσικό αέριο ζεστού νερού» δεν υποστηρίζεται πλέον. "
+                        "Χρησιμοποιήστε «Φυσικό αέριο (συνολικό)»."
+                    )
+                }
             if expense.expense_category in (
                 ExpenseItem.Category.GAS_HEATING,
                 ExpenseItem.Category.WATER_HW_CONSUMPTION,
-                ExpenseItem.Category.GAS_HW_CONSUMPTION,
             ):
                 cache_key = (
                     building_id,
@@ -1007,29 +1101,59 @@ def _calculate_invoice_rows(month: str):
                 context = None
 
             expense_amount = Decimal(expense.amount)
-            weights: dict[int, Decimal] | None = None
-            target_key: str | None = None
             if expense.expense_category == ExpenseItem.Category.GAS_HEATING:
-                weights = {apt.id: context["radiator_share_map"].get(apt.id, Decimal("0")) for apt in building_apartments}
-                target_key = "heating_radiators_total"
+                total_energy = context["total_energy"]
+                if total_energy <= Decimal("0"):
+                    return None, {
+                        "detail": (
+                            f"Μήνας {month}, κτίριο {building_id}: Μηδενική συνολική κατανάλωση ενέργειας "
+                            "(άθροισμα θέρμανσης διαμερισμάτων + λέβητας). Ελέγξτε τις μετρήσεις."
+                        )
+                    }
+                sum_heating_units = context["sum_heating_units"]
+                building_hw_units = context["building_hw_units"]
+                gas_radiator_amount = expense_amount * sum_heating_units / total_energy
+                gas_hw_amount = expense_amount * building_hw_units / total_energy
+
+                radiator_weights = {
+                    apt.id: context["radiator_share_map"].get(apt.id, Decimal("0")) for apt in building_apartments
+                }
+                radiator_allocations = _allocate_amount_by_weights(gas_radiator_amount, radiator_weights)
+                for apartment in building_apartments:
+                    rows[apartment.id]["heating_radiators_total"] += radiator_allocations.get(apartment.id, Decimal("0.00"))
+                _record_expense_breakdown(
+                    breakdown,
+                    building_apartments=building_apartments,
+                    expense=expense,
+                    expense_amount=gas_radiator_amount,
+                    allocations=radiator_allocations,
+                    bucket_key="heating_radiators_total",
+                )
+
+                volume_weights = {apt.id: context["volume_map"].get(apt.id, Decimal("0")) for apt in building_apartments}
+                hw_allocations = _allocate_amount_by_weights(gas_hw_amount, volume_weights)
+                for apartment in building_apartments:
+                    rows[apartment.id]["heated_water_energy_total"] += hw_allocations.get(apartment.id, Decimal("0.00"))
+                _record_expense_breakdown(
+                    breakdown,
+                    building_apartments=building_apartments,
+                    expense=expense,
+                    expense_amount=gas_hw_amount,
+                    allocations=hw_allocations,
+                    bucket_key="heated_water_energy_total",
+                )
             elif expense.expense_category == ExpenseItem.Category.WATER_HW_CONSUMPTION:
                 weights = {apt.id: context["volume_map"].get(apt.id, Decimal("0")) for apt in building_apartments}
-                target_key = "water_consumption_total"
-            elif expense.expense_category == ExpenseItem.Category.GAS_HW_CONSUMPTION:
-                weights = {apt.id: context["volume_map"].get(apt.id, Decimal("0")) for apt in building_apartments}
-                target_key = "heated_water_energy_total"
-
-            if weights is not None and target_key is not None:
                 allocations = _allocate_amount_by_weights(expense_amount, weights)
                 for apartment in building_apartments:
-                    rows[apartment.id][target_key] += allocations.get(apartment.id, Decimal("0.00"))
+                    rows[apartment.id]["water_consumption_total"] += allocations.get(apartment.id, Decimal("0.00"))
                 _record_expense_breakdown(
                     breakdown,
                     building_apartments=building_apartments,
                     expense=expense,
                     expense_amount=expense_amount,
                     allocations=allocations,
-                    bucket_key=target_key,
+                    bucket_key="water_consumption_total",
                 )
             elif expense.expense_category in recurring_categories:
                 ownership_weights = {
@@ -1246,6 +1370,11 @@ class HeatingMeasurementInputViewSet(AdminWriteRequiredMixin, viewsets.ModelView
                 apartment_id__in=apartment_ids,
                 measurement_date=measurement_date,
             ).delete()
+            building_ids = list(apartments.values_list("building_id", flat=True).distinct())
+            building_deleted, _ = BuildingMeasurementInput.objects.filter(
+                building_id__in=building_ids,
+                measurement_date=measurement_date,
+            ).delete()
 
         return Response(
             {
@@ -1253,6 +1382,7 @@ class HeatingMeasurementInputViewSet(AdminWriteRequiredMixin, viewsets.ModelView
                 "measurement_date": measurement_date.isoformat(),
                 "heating_deleted": heating_deleted,
                 "heated_water_deleted": water_deleted,
+                "building_deleted": building_deleted,
                 "warnings": warnings,
             },
             status=status.HTTP_200_OK,
@@ -1270,7 +1400,11 @@ class HeatingMeasurementInputViewSet(AdminWriteRequiredMixin, viewsets.ModelView
         water_dates = set(
             HeatedWaterMeasurementInput.objects.filter(apartment_id__in=apartment_ids).values_list("measurement_date", flat=True)
         )
-        measurement_dates = sorted(heating_dates | water_dates, reverse=True)
+        building_ids = list(apartments.values_list("building_id", flat=True).distinct())
+        building_dates = set(
+            BuildingMeasurementInput.objects.filter(building_id__in=building_ids).values_list("measurement_date", flat=True)
+        )
+        measurement_dates = sorted(heating_dates | water_dates | building_dates, reverse=True)
 
         items = []
         for measurement_date in measurement_dates:
@@ -1280,11 +1414,15 @@ class HeatingMeasurementInputViewSet(AdminWriteRequiredMixin, viewsets.ModelView
             water_count = HeatedWaterMeasurementInput.objects.filter(
                 apartment_id__in=apartment_ids, measurement_date=measurement_date
             ).count()
+            building_entry = BuildingMeasurementInput.objects.filter(
+                building_id__in=building_ids, measurement_date=measurement_date
+            ).exists()
             items.append(
                 {
                     "measurement_date": measurement_date,
                     "heating_entries": heating_count,
                     "heated_water_entries": water_count,
+                    "building_entry": building_entry,
                     "apartments_total": len(apartment_ids),
                     "locked": _measurement_date_locked(apartment_ids, measurement_date),
                 }
@@ -1306,11 +1444,19 @@ class HeatingMeasurementInputViewSet(AdminWriteRequiredMixin, viewsets.ModelView
                 HeatedWaterMeasurementInput.objects.filter(apartment__in=apartments).values_list(
                     "measurement_date", flat=True
                 )
+            )
+            | set(
+                BuildingMeasurementInput.objects.filter(
+                    building_id__in=apartments.values_list("building_id", flat=True).distinct()
+                ).values_list("measurement_date", flat=True)
             ),
             reverse=True,
         )
         if not measurement_date:
             measurement_date = date_after(all_dates[0]).isoformat() if all_dates else timezone.now().date().isoformat()
+
+        building_id = apartments.values_list("building_id", flat=True).first()
+        building_detail = _building_measurement_detail(building_id, measurement_date) if building_id else {}
 
         rows = []
         for apartment in apartments:
@@ -1334,7 +1480,10 @@ class HeatingMeasurementInputViewSet(AdminWriteRequiredMixin, viewsets.ModelView
                 }
             )
 
-        return Response({"measurement_date": measurement_date, "rows": rows}, status=status.HTTP_200_OK)
+        return Response(
+            {"measurement_date": measurement_date, "rows": rows, **building_detail},
+            status=status.HTTP_200_OK,
+        )
 
     @action(methods=["get"], detail=False, url_path="date-detail")
     def date_detail(self, request):
@@ -1386,11 +1535,16 @@ class HeatingMeasurementInputViewSet(AdminWriteRequiredMixin, viewsets.ModelView
                     "heated_water_units_counted": str(water_item.computed_heating_water_volume if water_item else ""),
                 }
             )
+
+        building_id = apartments.values_list("building_id", flat=True).first()
+        building_detail = _building_measurement_detail(building_id, measurement_date) if building_id else {}
+
         return Response(
             {
                 "measurement_date": measurement_date,
                 "locked": _measurement_date_locked(apartment_ids, measurement_date_obj),
                 "rows": rows,
+                **building_detail,
             },
             status=status.HTTP_200_OK,
         )
@@ -1437,9 +1591,43 @@ class HeatingMeasurementInputViewSet(AdminWriteRequiredMixin, viewsets.ModelView
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
+        building_reading_raw = data.get("building_hot_water_heating_reading")
+        if building_reading_raw is None:
+            return Response(
+                {"detail": "Απαιτείται ένδειξη λέβητα ζεστού νερού κτιρίου (building_hot_water_heating_reading)."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        building_ids = {apartment.building_id for apartment in apartments.values()}
+        if len(building_ids) != 1:
+            return Response(
+                {"detail": "Οι μετρήσεις πρέπει να αφορούν διαμερίσματα ενός κτιρίου."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        building_id = next(iter(building_ids))
+        building = Building.objects.get(id=building_id)
+        prev_building_reading = _previous_building_hot_water_reading(building_id, data["measurement_date"])
+        current_building_reading = q1(Decimal(building_reading_raw))
+        building_units = q1(current_building_reading - prev_building_reading)
+        if building_units < Decimal("0"):
+            return Response(
+                {"detail": "Αρνητική κατανάλωση λέβητα ζεστού νερού κτιρίου."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
         created_count = 0
         updated_count = 0
         with transaction.atomic():
+            _, building_created = BuildingMeasurementInput.objects.update_or_create(
+                building=building,
+                measurement_date=data["measurement_date"],
+                defaults={
+                    "hot_water_heating_current_reading": current_building_reading,
+                    "hot_water_heating_units": building_units,
+                    "created_by_user": request.user,
+                },
+            )
+
             for row in rows:
                 apartment = apartments[row["apartment_id"]]
                 e = Decimal(apartment.heating_e_factor)
@@ -1506,12 +1694,18 @@ class HeatingMeasurementInputViewSet(AdminWriteRequiredMixin, viewsets.ModelView
                 else:
                     updated_count += 1
 
+            if not building_created:
+                updated_count += 1
+            elif created_count == 0:
+                created_count += 1
+
         return Response(
             {
                 "detail": f"Οι μετρήσεις αποθηκεύτηκαν για την ημερομηνία {data['measurement_date']}.",
                 "created": created_count,
                 "updated": updated_count,
                 "rows": len(rows),
+                "building_hot_water_heating_units": str(building_units),
             },
             status=status.HTTP_200_OK,
         )

@@ -13,6 +13,7 @@ from flats.models import (
     Apartment,
     ApartmentUser,
     Building,
+    BuildingMeasurementInput,
     DesignatedVoter,
     ExpenseItem,
     HeatedWaterMeasurementInput,
@@ -87,6 +88,13 @@ class InvoiceGenerationTests(APITestCase):
             computed_heating_water_volume=Decimal("70"),
             created_by_user=self.admin,
         )
+        BuildingMeasurementInput.objects.create(
+            building=self.building,
+            measurement_date=date(2026, 4, 1),
+            hot_water_heating_current_reading=Decimal("30"),
+            hot_water_heating_units=Decimal("30"),
+            created_by_user=self.admin,
+        )
 
         ExpenseItem.objects.create(
             building=self.building,
@@ -118,10 +126,25 @@ class InvoiceGenerationTests(APITestCase):
         s2 = Decimal("0.4533333333333333333333333333")
         gas_total = Decimal("200")
         water_bill = Decimal("100")
-        expected_i1_radiators = q2(gas_total * s1)
-        expected_i2_radiators = q2(gas_total * s2)
-        expected_i1_heated_water = Decimal("0.00")
-        expected_i2_heated_water = Decimal("0.00")
+        sum_heating = Decimal("180")
+        building_hw = Decimal("30")
+        total_energy = sum_heating + building_hw
+        gas_radiator = gas_total * sum_heating / total_energy
+        gas_hw = gas_total * building_hw / total_energy
+        from flats.views import _allocate_amount_by_weights
+
+        radiator_allocations = _allocate_amount_by_weights(
+            gas_radiator,
+            {self.a1.id: s1, self.a2.id: s2},
+        )
+        hw_allocations = _allocate_amount_by_weights(
+            gas_hw,
+            {self.a1.id: Decimal("0.30"), self.a2.id: Decimal("0.70")},
+        )
+        expected_i1_radiators = radiator_allocations[self.a1.id]
+        expected_i2_radiators = radiator_allocations[self.a2.id]
+        expected_i1_heated_water = hw_allocations[self.a1.id]
+        expected_i2_heated_water = hw_allocations[self.a2.id]
         expected_i1_water = q2(water_bill * Decimal("0.30"))
         expected_i2_water = q2(water_bill * Decimal("0.70"))
 
@@ -139,6 +162,142 @@ class InvoiceGenerationTests(APITestCase):
         self.assertEqual(
             i2.invoice_total,
             q2(expected_i2_radiators + expected_i2_heated_water + expected_i2_water),
+        )
+
+    def test_building_measurement_upsert_computes_delta(self):
+        BuildingMeasurementInput.objects.create(
+            building=self.building,
+            measurement_date=date(2026, 6, 1),
+            hot_water_heating_current_reading=Decimal("100"),
+            hot_water_heating_units=Decimal("100"),
+            created_by_user=self.admin,
+        )
+        HeatingMeasurementInput.objects.create(
+            apartment=self.a1,
+            measurement_date=date(2026, 6, 1),
+            e_factor=Decimal("0.10"),
+            f_factor=Decimal("0.30"),
+            current_reading=Decimal("150"),
+            units_counted=Decimal("10"),
+            computed_radiator_heating_energy=Decimal("0.03"),
+            created_by_user=self.admin,
+        )
+        HeatedWaterMeasurementInput.objects.create(
+            apartment=self.a1,
+            measurement_date=date(2026, 6, 1),
+            current_reading=Decimal("40"),
+            computed_heating_water_volume=Decimal("5"),
+            created_by_user=self.admin,
+        )
+
+        response = self.client.post(
+            reverse("heating-inputs-monthly-upsert"),
+            {
+                "measurement_date": "2026-07-01",
+                "building_hot_water_heating_reading": "130",
+                "rows": [
+                    {
+                        "apartment_id": self.a1.id,
+                        "heating_current_reading": "170",
+                        "heated_water_current_reading": "47",
+                    }
+                ],
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        building = BuildingMeasurementInput.objects.get(building=self.building, measurement_date=date(2026, 7, 1))
+        self.assertEqual(building.hot_water_heating_current_reading, Decimal("130.0"))
+        self.assertEqual(building.hot_water_heating_units, Decimal("30.0"))
+
+    def test_invoice_generation_blocks_zero_total_energy(self):
+        month = "2026-04"
+        ExpenseItem.objects.create(
+            building=self.building,
+            expense_category=ExpenseItem.Category.GAS_HEATING,
+            expense_date=date(2026, 4, 10),
+            amount=Decimal("200.00"),
+            affected_period_start=date(2026, 4, 1),
+            affected_period_end=date(2026, 4, 30),
+            created_by_user=self.admin,
+        )
+        response = self.client.post(reverse("invoices-generate"), {"month": month}, format="json")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("Μηδενική συνολική κατανάλωση", str(response.data))
+
+    def test_invoice_generation_blocks_dual_gas_categories(self):
+        month = "2026-04"
+        self._seed_april_measurements_with_building()
+        ExpenseItem.objects.create(
+            building=self.building,
+            expense_category=ExpenseItem.Category.GAS_HEATING,
+            expense_date=date(2026, 4, 10),
+            amount=Decimal("200.00"),
+            created_by_user=self.admin,
+        )
+        ExpenseItem.objects.create(
+            building=self.building,
+            expense_category=ExpenseItem.Category.GAS_HW_CONSUMPTION,
+            expense_date=date(2026, 4, 10),
+            amount=Decimal("50.00"),
+            created_by_user=self.admin,
+        )
+        response = self.client.post(reverse("invoices-generate"), {"month": month}, format="json")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("παλαιά κατηγορία", str(response.data))
+
+    def test_rejects_new_gas_hw_expense(self):
+        response = self.client.post(
+            reverse("expenses-list"),
+            {
+                "building": self.building.id,
+                "expense_category": ExpenseItem.Category.GAS_HW_CONSUMPTION,
+                "expense_date": "2026-07-10",
+                "amount": "50.00",
+                "description": "legacy gas hw",
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("δεν υποστηρίζεται πλέον", str(response.data))
+
+    def _seed_april_measurements_with_building(self):
+        HeatingMeasurementInput.objects.create(
+            apartment=self.a1,
+            measurement_date=date(2026, 4, 1),
+            e_factor=Decimal("0.10"),
+            f_factor=Decimal("0.30"),
+            units_counted=Decimal("100"),
+            computed_radiator_heating_energy=Decimal("0.03"),
+            created_by_user=self.admin,
+        )
+        HeatingMeasurementInput.objects.create(
+            apartment=self.a2,
+            measurement_date=date(2026, 4, 1),
+            e_factor=Decimal("0.20"),
+            f_factor=Decimal("0.20"),
+            units_counted=Decimal("80"),
+            computed_radiator_heating_energy=Decimal("0.04"),
+            created_by_user=self.admin,
+        )
+        HeatedWaterMeasurementInput.objects.create(
+            apartment=self.a1,
+            measurement_date=date(2026, 4, 1),
+            computed_heating_water_volume=Decimal("30"),
+            created_by_user=self.admin,
+        )
+        HeatedWaterMeasurementInput.objects.create(
+            apartment=self.a2,
+            measurement_date=date(2026, 4, 1),
+            computed_heating_water_volume=Decimal("70"),
+            created_by_user=self.admin,
+        )
+        BuildingMeasurementInput.objects.create(
+            building=self.building,
+            measurement_date=date(2026, 4, 1),
+            hot_water_heating_current_reading=Decimal("30"),
+            hot_water_heating_units=Decimal("30"),
+            created_by_user=self.admin,
         )
 
     def test_invoice_generation_applies_custom_adjustments(self):
@@ -284,6 +443,7 @@ class InvoiceGenerationTests(APITestCase):
             reverse("heating-inputs-monthly-upsert"),
             {
                 "measurement_date": "2026-07-01",
+                "building_hot_water_heating_reading": "110",
                 "rows": [
                     {
                         "apartment_id": self.a1.id,
@@ -546,6 +706,24 @@ class InvoiceGenerationTests(APITestCase):
 
     def test_generate_response_includes_summary_and_warnings(self):
         month = "2026-09"
+        HeatingMeasurementInput.objects.create(
+            apartment=self.a1,
+            measurement_date=date(2026, 9, 1),
+            e_factor=Decimal("0.10"),
+            f_factor=Decimal("0.30"),
+            units_counted=Decimal("50"),
+            computed_radiator_heating_energy=Decimal("0.03"),
+            created_by_user=self.admin,
+        )
+        HeatingMeasurementInput.objects.create(
+            apartment=self.a2,
+            measurement_date=date(2026, 9, 1),
+            e_factor=Decimal("0.20"),
+            f_factor=Decimal("0.20"),
+            units_counted=Decimal("50"),
+            computed_radiator_heating_energy=Decimal("0.04"),
+            created_by_user=self.admin,
+        )
         ExpenseItem.objects.create(
             building=self.building,
             expense_category=ExpenseItem.Category.GAS_HEATING,
@@ -1271,6 +1449,13 @@ class AdminDestructiveOperationsTests(APITestCase):
             computed_heating_water_volume=Decimal(reading),
             created_by_user=self.admin,
         )
+        BuildingMeasurementInput.objects.create(
+            building=self.building,
+            measurement_date=measurement_date,
+            hot_water_heating_current_reading=Decimal(reading),
+            hot_water_heating_units=Decimal(reading),
+            created_by_user=self.admin,
+        )
 
     def test_admin_edits_measurements_when_not_allocated(self):
         measurement_date = date(2026, 10, 1)
@@ -1280,6 +1465,7 @@ class AdminDestructiveOperationsTests(APITestCase):
             reverse("heating-inputs-monthly-upsert"),
             {
                 "measurement_date": measurement_date.isoformat(),
+                "building_hot_water_heating_reading": "20",
                 "rows": [
                     {
                         "apartment_id": self.a1.id,
@@ -1293,8 +1479,10 @@ class AdminDestructiveOperationsTests(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         heating = HeatingMeasurementInput.objects.get(apartment=self.a1, measurement_date=measurement_date)
         water = HeatedWaterMeasurementInput.objects.get(apartment=self.a1, measurement_date=measurement_date)
+        building = BuildingMeasurementInput.objects.get(building=self.building, measurement_date=measurement_date)
         self.assertEqual(heating.current_reading, Decimal("25.0"))
         self.assertEqual(water.current_reading, Decimal("18.0"))
+        self.assertEqual(building.hot_water_heating_current_reading, Decimal("20.0"))
 
     def test_edit_measurements_blocked_when_month_allocated(self):
         measurement_date = date(2026, 11, 1)
@@ -1312,6 +1500,7 @@ class AdminDestructiveOperationsTests(APITestCase):
             reverse("heating-inputs-monthly-upsert"),
             {
                 "measurement_date": measurement_date.isoformat(),
+                "building_hot_water_heating_reading": "20",
                 "rows": [
                     {
                         "apartment_id": self.a1.id,
