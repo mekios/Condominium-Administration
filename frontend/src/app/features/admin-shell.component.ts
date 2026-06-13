@@ -32,6 +32,12 @@ import { AuthService } from '../core/auth.service';
           <img src="logo.png" alt="Μεταμόρφωσεως 5 — Χαλάνδρι, Αττική" class="brand-logo" />
         </div>
         <nav>
+          <a routerLink="/app/dashboard" routerLinkActive="active" (click)="closeMobileMenu()">
+            <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M4 19V5m0 14h16M9 16V9m5 7V7m5 9v-4" />
+            </svg>
+            <span>Πίνακας ελέγχου</span>
+          </a>
           <a routerLink="/app/invoices" routerLinkActive="active" (click)="closeMobileMenu()">
             <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
               <path d="M7 3h7l5 5v13a1 1 0 0 1-1 1H7a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2Zm6 1v4h4" />
@@ -49,13 +55,7 @@ import { AuthService } from '../core/auth.service';
               <path d="M3 16.5 16.5 3 21 7.5 7.5 21H3v-4.5ZM11 7l6 6" />
             </svg>
             <span>Μετρήσεις</span>
-          </a>
-          <a routerLink="/app/dashboard" routerLinkActive="active" (click)="closeMobileMenu()">
-            <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
-              <path d="M4 19V5m0 14h16M9 16V9m5 7V7m5 9v-4" />
-            </svg>
-            <span>Πίνακας ελέγχου</span>
-          </a>
+          </a>          
           <a routerLink="/app/voting" routerLinkActive="active" (click)="closeMobileMenu()">
             <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
               <path d="M4 6h16M4 12h10M4 18h7M17 15l2 2 3-4" />
@@ -445,8 +445,10 @@ export class AdminShellComponent implements OnInit, OnDestroy {
       next: (me) => {
         this.me = me;
       },
-      error: () => {
-        this.logout();
+      error: (err) => {
+        if (err?.status === 401 || err?.status === 403) {
+          this.logout();
+        }
       },
     });
     // Warm the apartment cache but do not block shell rendering.

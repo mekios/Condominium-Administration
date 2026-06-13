@@ -1,12 +1,14 @@
-import { Component, OnInit } from '@angular/core';
+import { Component, OnDestroy, OnInit } from '@angular/core';
 import { NgFor, NgIf } from '@angular/common';
+import { FormsModule } from '@angular/forms';
 import { HttpClient } from '@angular/common/http';
 import { Router } from '@angular/router';
 
-import { finalize, forkJoin } from 'rxjs';
+import { finalize, forkJoin, of, Subscription, switchMap } from 'rxjs';
 
 import { AppDataService, Apartment, Invoice, Me } from '../core/app-data.service';
-import { API_BASE } from '../core/api.constants';
+import { AdminModeService } from '../core/admin-mode.service';
+import { API_BASE, DEFAULT_BUILDING_ID } from '../core/api.constants';
 import { EuroPipe } from '../core/euro.pipe';
 import { MonthFormatPipe } from '../core/month-format.pipe';
 import {
@@ -14,6 +16,7 @@ import {
   getCategoryIconGlow,
   getDisplayLabel,
   getIconPath,
+  isFundIncreaseCategory,
 } from '../core/expense-categories';
 
 type ExpenseItem = {
@@ -26,10 +29,16 @@ type ExpenseItem = {
   description: string;
 };
 
+type Building = {
+  id: number;
+  name: string;
+  fund_balance: string;
+};
+
 @Component({
   standalone: true,
   selector: 'app-dashboard',
-  imports: [NgIf, NgFor, EuroPipe, MonthFormatPipe],
+  imports: [NgIf, NgFor, FormsModule, EuroPipe, MonthFormatPipe],
   template: `
     <section class="stats">
       <article class="stat-card welcome-card">
@@ -48,7 +57,28 @@ type ExpenseItem = {
         <p class="label">Υπόλοιπο ταμείου κτιρίου</p>
         <p class="value">{{ buildingFinanceBalance | euro }}</p>
         <div class="finance-breakdown">
-          <div><span>Αποθεματικό</span><strong>{{ openingBalance | euro }}</strong></div>
+          <div class="fund-row">
+            <span>Αποθεματικό</span>
+            <div class="fund-value" *ngIf="!editingFund">
+              <strong>{{ openingBalance | euro }}</strong>
+              <button
+                class="fund-edit-btn"
+                *ngIf="canManage"
+                type="button"
+                (click)="startFundEdit()"
+                aria-label="Επεξεργασία αποθεματικού"
+              >
+                ✎
+              </button>
+            </div>
+            <div class="fund-edit" *ngIf="editingFund">
+              <input type="number" step="0.01" [(ngModel)]="fundDraft" />
+              <button class="fund-save-btn" type="button" (click)="saveFundBalance()" [disabled]="fundSaving">
+                {{ fundSaving ? '...' : 'OK' }}
+              </button>
+              <button class="fund-cancel-btn" type="button" (click)="cancelFundEdit()" [disabled]="fundSaving">✕</button>
+            </div>
+          </div>
           <div><span>- Έξοδα</span><strong>{{ latestExpensesTotal | euro }}</strong></div>
           <div><span>- Ανεξόφλητα</span><strong>{{ unpaidTotal | euro }}</strong></div>
         </div>
@@ -209,17 +239,26 @@ type ExpenseItem = {
     .finance-card {
       border-color: #2f4f8a;
       background: linear-gradient(165deg, #122346 0%, #1b2050 52%, #12193a 100%);
-      padding: 0.65rem 0.75rem;
+      padding: 0.85rem 0.95rem;
+    }
+    .finance-card .label {
+      font-size: 0.98rem;
+      margin-bottom: 0.35rem;
+    }
+    .finance-card .value {
+      font-size: 2rem;
+      line-height: 1.1;
+      letter-spacing: -0.02em;
     }
     .finance-card.negative {
       border-color: #91556a;
       background: linear-gradient(165deg, #2a1630 0%, #301a36 52%, #1b1328 100%);
     }
     .finance-breakdown {
-      margin-top: 0.35rem;
+      margin-top: 0.5rem;
       display: grid;
-      gap: 0.2rem;
-      font-size: 0.78rem;
+      gap: 0.35rem;
+      font-size: 0.95rem;
     }
     .finance-breakdown > div {
       display: flex;
@@ -227,8 +266,47 @@ type ExpenseItem = {
       border-bottom: 1px dashed rgba(145, 175, 234, 0.22);
       padding-bottom: 0.15rem;
     }
+    .fund-row {
+      align-items: center;
+      gap: 0.5rem;
+    }
+    .fund-value {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.35rem;
+    }
+    .fund-edit-btn,
+    .fund-save-btn,
+    .fund-cancel-btn {
+      border: 1px solid #4c66a8;
+      background: rgba(36, 68, 127, 0.55);
+      color: #eef3ff;
+      border-radius: 6px;
+      padding: 0.15rem 0.4rem;
+      font-size: 0.82rem;
+      cursor: pointer;
+      line-height: 1.2;
+    }
+    .fund-edit {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.25rem;
+    }
+    .fund-edit input {
+      width: 6.5rem;
+      border: 1px solid #395f9c;
+      background: #0f1a35;
+      color: #eef3ff;
+      border-radius: 6px;
+      padding: 0.15rem 0.35rem;
+      font-size: 0.92rem;
+    }
     .finance-breakdown span { color: #adc0ea; }
-    .finance-breakdown strong { color: #e8f0ff; }
+    .finance-breakdown strong {
+      color: #e8f0ff;
+      font-size: 1.05rem;
+      font-weight: 700;
+    }
     .finance-meter {
       margin-top: 0.45rem;
       height: 8px;
@@ -396,7 +474,7 @@ type ExpenseItem = {
     }
   `,
 })
-export class DashboardComponent implements OnInit {
+export class DashboardComponent implements OnInit, OnDestroy {
   me: Me | null = null;
   apartments: Apartment[] = [];
   invoices: Invoice[] = [];
@@ -405,12 +483,16 @@ export class DashboardComponent implements OnInit {
   latestInvoices: Invoice[] = [];
   latestExpenses: ExpenseItem[] = [];
   month = new Date().toISOString().slice(0, 7);
-  openingBalance = 4500;
+  openingBalance = 0;
   latestIssuedMonth = '';
   latestExpensesTotal = 0;
   unpaidTotal = 0;
-  buildingFinanceBalance = 4500;
+  buildingFinanceBalance = 0;
   balanceFillPercent = 100;
+  canManage = false;
+  editingFund = false;
+  fundDraft = '';
+  fundSaving = false;
   message = '';
   loading = true;
   greetingPrefix = 'Καλημέρα';
@@ -419,33 +501,48 @@ export class DashboardComponent implements OnInit {
   readonly getIconPath = getIconPath;
   readonly getCategoryIconColor = getCategoryIconColor;
   readonly getCategoryIconGlow = getCategoryIconGlow;
+  private adminModeSub?: Subscription;
 
   constructor(
     private readonly data: AppDataService,
     private readonly http: HttpClient,
     private readonly router: Router,
+    private readonly adminMode: AdminModeService,
   ) {}
 
   ngOnInit(): void {
     this.setGreetingByCurrentTime();
+    this.adminModeSub = this.adminMode.adminModeActive$.subscribe(() => this.refreshCanManage());
     this.loading = true;
     this.message = '';
-    forkJoin({
-      me: this.data.getMe(),
-      apartments: this.data.getLinkedApartments(),
-      invoices: this.http.get<Invoice[]>(`${API_BASE}/api/invoices/?personal_scope=1`),
-    })
-      .pipe(finalize(() => (this.loading = false)))
+    this.data
+      .getMe()
+      .pipe(
+        switchMap((me) =>
+          forkJoin({
+            me: of(me),
+            apartments: this.data.getLinkedApartments(),
+            personalInvoices: this.http.get<Invoice[]>(`${API_BASE}/api/invoices/?personal_scope=1`),
+            buildingInvoices: this.http.get<Invoice[]>(this.buildingInvoicesUrl(me)),
+            building: this.http.get<Building>(`${API_BASE}/api/buildings/${DEFAULT_BUILDING_ID}/`),
+          }),
+        ),
+        finalize(() => (this.loading = false)),
+      )
       .subscribe({
-        next: ({ me, apartments, invoices }) => {
+        next: ({ me, apartments, personalInvoices, buildingInvoices, building }) => {
           this.me = me;
+          this.refreshCanManage();
           this.apartments = apartments;
-          this.invoices = invoices;
-          this.unpaidInvoices = invoices.filter((inv) => Number(inv.outstanding_balance) > 0);
-          this.latestInvoices = this.findLatestInvoices(invoices);
+          this.invoices = personalInvoices;
+          this.openingBalance = Number(building.fund_balance || 0);
+          this.unpaidInvoices = personalInvoices.filter((inv) => Number(inv.outstanding_balance) > 0);
+          this.latestInvoices = this.findLatestInvoices(personalInvoices);
           this.displayInvoices = this.unpaidInvoices.length ? this.unpaidInvoices : this.latestInvoices;
-          this.unpaidTotal = this.unpaidInvoices.reduce((sum, inv) => sum + Number(inv.outstanding_balance || 0), 0);
-          this.latestIssuedMonth = this.findLatestIssuedMonth(invoices);
+          this.unpaidTotal = buildingInvoices
+            .filter((inv) => Number(inv.outstanding_balance) > 0)
+            .reduce((sum, inv) => sum + Number(inv.outstanding_balance || 0), 0);
+          this.latestIssuedMonth = this.findLatestIssuedMonth(buildingInvoices);
           if (this.latestIssuedMonth) {
             this.loadLatestExpenses(this.latestIssuedMonth);
           } else {
@@ -458,11 +555,67 @@ export class DashboardComponent implements OnInit {
       });
   }
 
+  ngOnDestroy(): void {
+    this.adminModeSub?.unsubscribe();
+  }
+
+  private refreshCanManage(): void {
+    this.canManage = this.adminMode.canManage(this.me);
+    if (!this.canManage) {
+      this.editingFund = false;
+    }
+  }
+
+  startFundEdit(): void {
+    this.fundDraft = this.openingBalance.toFixed(2);
+    this.editingFund = true;
+  }
+
+  cancelFundEdit(): void {
+    this.editingFund = false;
+  }
+
+  saveFundBalance(): void {
+    if (!this.canManage || this.fundSaving) return;
+    const amount = Number(this.fundDraft);
+    if (!Number.isFinite(amount) || amount < 0) {
+      this.message = 'Μη έγκυρο ποσό αποθεματικού.';
+      return;
+    }
+    this.fundSaving = true;
+    this.message = '';
+    this.http
+      .patch<Building>(`${API_BASE}/api/buildings/${DEFAULT_BUILDING_ID}/`, {
+        fund_balance: amount.toFixed(2),
+      })
+      .subscribe({
+        next: (building) => {
+          this.openingBalance = Number(building.fund_balance || 0);
+          this.editingFund = false;
+          this.fundSaving = false;
+          this.recomputeBuildingBalance();
+        },
+        error: () => {
+          this.fundSaving = false;
+          this.message = 'Αποτυχία αποθήκευσης αποθεματικού.';
+        },
+      });
+  }
+
+  private buildingInvoicesUrl(me: Me): string {
+    if (me.role === 'superadmin' || me.role === 'administrator') {
+      return `${API_BASE}/api/invoices/`;
+    }
+    return `${API_BASE}/api/invoices/?building_scope=1`;
+  }
+
   private loadLatestExpenses(month: string): void {
     this.http.get<ExpenseItem[]>(`${API_BASE}/api/accounting/expenses/?month=${month}`).subscribe({
       next: (expenses) => {
         this.latestExpenses = expenses;
-        this.latestExpensesTotal = expenses.reduce((sum, expense) => sum + Number(expense.amount || 0), 0);
+        this.latestExpensesTotal = expenses
+          .filter((expense) => !isFundIncreaseCategory(expense.expense_category))
+          .reduce((sum, expense) => sum + Number(expense.amount || 0), 0);
         this.recomputeBuildingBalance();
       },
       error: () => {

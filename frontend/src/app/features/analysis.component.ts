@@ -8,7 +8,7 @@ import { Invoice } from '../core/app-data.service';
 import { EuroPipe } from '../core/euro.pipe';
 import { MonthFormatPipe } from '../core/month-format.pipe';
 import { MonthPickerComponent } from '../core/month-picker/month-picker.component';
-import { getDisplayLabel } from '../core/expense-categories';
+import { getDisplayLabel, isFundIncreaseCategory } from '../core/expense-categories';
 
 type ExpenseItem = {
   id: number;
@@ -259,7 +259,9 @@ export class AnalysisComponent implements OnInit {
         next: ({ expenses, invoices }) => {
           this.expenses = expenses;
           this.invoices = [...invoices].sort((a, b) => a.apartment_unit_code.localeCompare(b.apartment_unit_code, 'el'));
-          this.totalExpenses = this.expenses.reduce((sum, item) => sum + Number(item.amount || 0), 0);
+          this.totalExpenses = this.expenses
+            .filter((item) => !isFundIncreaseCategory(item.expense_category))
+            .reduce((sum, item) => sum + Number(item.amount || 0), 0);
           this.totalInvoices = this.invoices.reduce((sum, inv) => sum + Number(inv.invoice_total || 0), 0);
           this.analysisRows = this.invoices.map((inv) => {
             const amount = Number(inv.invoice_total || 0);
@@ -279,7 +281,7 @@ export class AnalysisComponent implements OnInit {
           if (!this.analysisRows.length && !this.expenses.length) {
             this.message = 'No data for this month.';
           } else if (!this.analysisRows.length && this.expenses.length) {
-            this.message = 'No building-wide invoices were found for this month.';
+            this.message = 'No invoices were found for this month.';
           }
         },
         error: () => {

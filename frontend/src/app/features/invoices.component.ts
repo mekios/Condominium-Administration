@@ -1,11 +1,9 @@
 import { Component, HostListener, OnInit } from '@angular/core';
 import { NgFor, NgIf } from '@angular/common';
 import { FormsModule } from '@angular/forms';
-import { MatDatepickerModule } from '@angular/material/datepicker';
-import { MatFormFieldModule } from '@angular/material/form-field';
-import { MatInputModule } from '@angular/material/input';
 
 import { MonthFormatPipe } from '../core/month-format.pipe';
+import { DatePickerComponent } from '../core/date-picker/date-picker.component';
 import { MonthPickerComponent } from '../core/month-picker/month-picker.component';
 import { currentMonth, formatMonthYear } from '../core/month.utils';
 import { EuroPipe } from '../core/euro.pipe';
@@ -34,7 +32,7 @@ type InvoiceFilterMode = 'single' | 'range' | 'all';
 @Component({
   standalone: true,
   selector: 'app-invoices',
-  imports: [NgIf, NgFor, FormsModule, MonthFormatPipe, EuroPipe, MonthPickerComponent, MatDatepickerModule, MatFormFieldModule, MatInputModule],
+  imports: [NgIf, NgFor, FormsModule, MonthFormatPipe, EuroPipe, MonthPickerComponent, DatePickerComponent],
   template: `
     <section class="panel">
       <div class="panel-head">
@@ -242,12 +240,11 @@ type InvoiceFilterMode = 'single' | 'range' | 'all';
               Ποσό πληρωμής
               <input type="number" step="0.01" [(ngModel)]="paymentForm.amount" />
             </label>
-            <mat-form-field>
-              <mat-label>Ημερομηνία πληρωμής</mat-label>
-              <input matInput [matDatepicker]="payDatePicker" [value]="dateToDate(paymentForm.payment_date)" (click)="payDatePicker.open()" (dateChange)="onPaymentDateChange($event.value)" />
-              <mat-datepicker-toggle matIconSuffix [for]="payDatePicker"></mat-datepicker-toggle>
-              <mat-datepicker #payDatePicker></mat-datepicker>
-            </mat-form-field>
+            <app-date-picker
+              label="Ημερομηνία πληρωμής"
+              [value]="paymentForm.payment_date"
+              (valueChange)="paymentForm.payment_date = $event"
+            />
             <label>
               Μέθοδος
               <div class="select-wrap">
@@ -1140,24 +1137,6 @@ export class InvoicesComponent implements OnInit {
           this.previewError = 'Αποτυχία φόρτωσης προεπισκόπησης.';
         },
       });
-  }
-
-  dateToDate(value: string): Date | null {
-    if (!value) return null;
-    const d = new Date(`${value}T00:00:00`);
-    return Number.isNaN(d.getTime()) ? null : d;
-  }
-
-  onPaymentDateChange(value: Date | null): void {
-    if (!value) return;
-    this.paymentForm.payment_date = this.toIsoDate(value);
-  }
-
-  private toIsoDate(value: Date): string {
-    const y = value.getFullYear();
-    const m = String(value.getMonth() + 1).padStart(2, '0');
-    const d = String(value.getDate()).padStart(2, '0');
-    return `${y}-${m}-${d}`;
   }
 
   toggleActionMenu(invoiceId: number, event?: MouseEvent): void {

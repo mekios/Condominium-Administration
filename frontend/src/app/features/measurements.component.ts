@@ -3,13 +3,11 @@ import { DatePipe, NgFor, NgIf } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { HttpClient } from '@angular/common/http';
 import { finalize } from 'rxjs';
-import { MatDatepickerModule } from '@angular/material/datepicker';
-import { MatFormFieldModule } from '@angular/material/form-field';
-import { MatInputModule } from '@angular/material/input';
 
 import { API_BASE } from '../core/api.constants';
 import { AdminModeService } from '../core/admin-mode.service';
 import { AppDataService, Me } from '../core/app-data.service';
+import { DatePickerComponent } from '../core/date-picker/date-picker.component';
 import { DialogService } from '../core/dialog/dialog.service';
 
 type MonthItem = {
@@ -48,7 +46,7 @@ type EntryFormResponse = {
 @Component({
   standalone: true,
   selector: 'app-measurements',
-  imports: [NgFor, NgIf, FormsModule, DatePipe, MatDatepickerModule, MatFormFieldModule, MatInputModule],
+  imports: [NgFor, NgIf, FormsModule, DatePipe, DatePickerComponent],
   template: `
     <section class="panel">
       <div class="panel-head">
@@ -84,12 +82,11 @@ type EntryFormResponse = {
             <button class="icon-close" aria-label="Κλείσιμο" (click)="closeEntryPanel()">✕</button>
           </div>
 
-          <mat-form-field class="date-field">
-            <mat-label>Ημερομηνία μέτρησης</mat-label>
-            <input matInput [matDatepicker]="entryDatePicker" [value]="toDate(entryDate)" (click)="entryDatePicker.open()" (dateChange)="onEntryDatePicked($event.value)" />
-            <mat-datepicker-toggle matIconSuffix [for]="entryDatePicker"></mat-datepicker-toggle>
-            <mat-datepicker #entryDatePicker></mat-datepicker>
-          </mat-form-field>
+          <app-date-picker
+            label="Ημερομηνία μέτρησης"
+            [value]="entryDate"
+            (valueChange)="onEntryDatePicked($event)"
+          />
 
           <p class="hint" *ngIf="loadingEntryForm">Προετοιμασία φόρμας ημερομηνίας...</p>
 
@@ -391,8 +388,9 @@ type EntryFormResponse = {
       display: flex;
       gap: 0.4rem;
     }
-    .date-field {
-      max-width: 260px;
+    .entry-panel app-date-picker {
+      display: block;
+      max-width: 22rem;
       margin-bottom: 0.5rem;
     }
     .empty {
@@ -869,22 +867,9 @@ export class MeasurementsComponent implements OnInit {
     return apartmentLabel.split('-')[0].trim();
   }
 
-  toDate(value: string): Date | null {
-    if (!value) return null;
-    const d = new Date(`${value}T00:00:00`);
-    return Number.isNaN(d.getTime()) ? null : d;
-  }
-
-  onEntryDatePicked(value: Date | null): void {
+  onEntryDatePicked(value: string): void {
     if (!value) return;
-    this.entryDate = this.toIsoDate(value);
+    this.entryDate = value;
     this.onEntryDateChange();
-  }
-
-  private toIsoDate(value: Date): string {
-    const y = value.getFullYear();
-    const m = String(value.getMonth() + 1).padStart(2, '0');
-    const d = String(value.getDate()).padStart(2, '0');
-    return `${y}-${m}-${d}`;
   }
 }

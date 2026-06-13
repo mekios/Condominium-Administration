@@ -20,6 +20,7 @@ export const EXPENSE_CATEGORIES: ExpenseCategoryConfig[] = [
   { value: 'damages', label: 'Ζημιές', iconPath: 'M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z', useDescriptionAsLabel: true },
   { value: 'annual_servicing', label: 'Ετήσια συντήρηση', iconPath: 'M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z', useDescriptionAsLabel: true },
   { value: 'owners_only', label: 'Έξοδα μόνο ιδιοκτητών', iconPath: 'M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4', useDescriptionAsLabel: true },
+  { value: 'fund_increase', label: 'Αύξηση αποθεματικού', iconPath: 'M5.5 17a6.5 1.7 0 1 0 13 0a6.5 1.7 0 1 0 -13 0M6.5 12.5a5.5 1.5 0 1 0 11 0a5.5 1.5 0 1 0 -11 0M7.5 8.5a4.5 1.3 0 1 0 9 0a4.5 1.3 0 1 0 -9 0', useDescriptionAsLabel: true },
   { value: 'other', label: 'Λοιπά', iconPath: 'M9 5h6M9 9h6M9 13h6', useDescriptionAsLabel: true },
 ];
 
@@ -59,6 +60,7 @@ const CATEGORY_COLORS: Record<string, string> = {
   damages: '#ff7c7c',
   annual_servicing: '#c0a5ff',
   owners_only: '#ffd37d',
+  fund_increase: '#7dffb0',
   other: '#c5d2ff',
 };
 
@@ -74,6 +76,7 @@ const CATEGORY_GLOWS: Record<string, string> = {
   damages: 'drop-shadow(0 0 7px rgba(255, 124, 124, 0.55))',
   annual_servicing: 'drop-shadow(0 0 7px rgba(192, 165, 255, 0.5))',
   owners_only: 'drop-shadow(0 0 7px rgba(255, 211, 125, 0.52))',
+  fund_increase: 'drop-shadow(0 0 8px rgba(125, 255, 176, 0.58))',
   other: 'drop-shadow(0 0 6px rgba(197, 210, 255, 0.4))',
 };
 
@@ -83,4 +86,8 @@ export function getCategoryIconColor(category: string): string {
 
 export function getCategoryIconGlow(category: string): string {
   return CATEGORY_GLOWS[category] ?? 'drop-shadow(0 0 6px rgba(169, 189, 233, 0.35))';
+}
+
+export function isFundIncreaseCategory(category: string): boolean {
+  return category === 'fund_increase';
 }

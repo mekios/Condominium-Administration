@@ -53,7 +53,6 @@ type ExpenseItem = {
             <thead>
               <tr>
                 <th>ID</th>
-                <th>Κτίριο</th>
                 <th>Κατηγορία</th>
                 <th>Ημερομηνία</th>
                 <th>Ποσό</th>
@@ -71,7 +70,6 @@ type ExpenseItem = {
                 (click)="openExpense(expense.id)"
               >
                 <td>{{ expense.id }}</td>
-                <td>#{{ expense.building }}</td>
                 <td class="cat-cell">
                   <span class="cat-inner">
                     <svg

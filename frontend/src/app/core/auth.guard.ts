@@ -1,6 +1,6 @@
 import { inject } from '@angular/core';
 import { CanActivateFn, Router } from '@angular/router';
-import { catchError, map, of } from 'rxjs';
+import { catchError, map, of, switchMap } from 'rxjs';
 
 import { AdminModeService } from './admin-mode.service';
 import { AuthService } from './auth.service';
@@ -8,7 +8,11 @@ import { AppDataService } from './app-data.service';
 
 export const authGuard: CanActivateFn = () => {
   const auth = inject(AuthService);
-  return auth.isAuthenticated() ? true : inject(Router).parseUrl('/login');
+  const router = inject(Router);
+
+  return auth.ensureSession().pipe(
+    map((valid) => (valid ? true : router.parseUrl('/login'))),
+  );
 };
 
 export const adminOnlyGuard: CanActivateFn = () => {
@@ -17,12 +21,22 @@ export const adminOnlyGuard: CanActivateFn = () => {
   const data = inject(AppDataService);
   const adminMode = inject(AdminModeService);
 
-  if (!auth.isAuthenticated()) {
-    return router.parseUrl('/login');
-  }
+  return auth.ensureSession().pipe(
+    switchMap((valid) => {
+      if (!valid) {
+        return of(router.parseUrl('/login'));
+      }
 
-  return data.getMe().pipe(
-    map((me) => (adminMode.canManage(me) ? true : router.parseUrl('/app/invoices'))),
-    catchError(() => of(router.parseUrl('/app/invoices'))),
+      return data.getMe().pipe(
+        map((me) => (adminMode.canManage(me) ? true : router.parseUrl('/app/invoices'))),
+        catchError((err) => {
+          if (err?.status === 401 || err?.status === 403) {
+            auth.logout();
+            return of(router.parseUrl('/login'));
+          }
+          return of(router.parseUrl('/app/invoices'));
+        }),
+      );
+    }),
   );
 };

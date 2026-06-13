@@ -1,9 +1,11 @@
 from django.db import models
 from django.conf import settings
+from decimal import Decimal
 
 
 class Building(models.Model):
     name = models.CharField(max_length=255)
+    fund_balance = models.DecimalField(max_digits=14, decimal_places=2, default=Decimal("0.00"))
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -38,13 +40,28 @@ class Apartment(models.Model):
 class ApartmentUser(models.Model):
     apartment = models.ForeignKey(Apartment, on_delete=models.CASCADE, related_name="memberships")
     user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="apartment_memberships")
-    is_tenant = models.BooleanField(default=True)
-    is_owner = models.BooleanField(default=False)
+    is_tenant = models.BooleanField(
+        default=True,
+        help_text="User has access as a resident (tenant) of this apartment.",
+    )
+    is_owner = models.BooleanField(
+        default=False,
+        help_text="User is recorded as owner of this apartment.",
+    )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
         unique_together = ("apartment", "user")
+
+    def __str__(self) -> str:
+        roles: list[str] = []
+        if self.is_tenant:
+            roles.append("tenant")
+        if self.is_owner:
+            roles.append("owner")
+        role_label = ", ".join(roles) if roles else "no role"
+        return f"{self.user} → {self.apartment} ({role_label})"
 
 
 class DesignatedVoter(models.Model):
@@ -53,6 +70,9 @@ class DesignatedVoter(models.Model):
     effective_from = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self) -> str:
+        return f"{self.apartment} — voter: {self.voter_user}"
 
 
 class VoteSession(models.Model):
@@ -99,6 +119,10 @@ class Vote(models.Model):
             models.UniqueConstraint(fields=["vote_session", "apartment"], name="uniq_vote_session_apartment"),
         ]
 
+    def __str__(self) -> str:
+        return f"{self.apartment} @ {self.vote_session}: {self.vote_value}"
+
+
 class HeatingMeasurementInput(models.Model):
     apartment = models.ForeignKey(Apartment, on_delete=models.CASCADE, related_name="heating_inputs")
     measurement_date = models.DateField()
@@ -114,6 +138,9 @@ class HeatingMeasurementInput(models.Model):
     class Meta:
         unique_together = ("apartment", "measurement_date")
 
+    def __str__(self) -> str:
+        return f"{self.apartment} · heating · {self.measurement_date}"
+
 
 class HeatedWaterMeasurementInput(models.Model):
     apartment = models.ForeignKey(Apartment, on_delete=models.CASCADE, related_name="heated_water_inputs")
@@ -127,6 +154,9 @@ class HeatedWaterMeasurementInput(models.Model):
 
     class Meta:
         unique_together = ("apartment", "measurement_date")
+
+    def __str__(self) -> str:
+        return f"{self.apartment} · hot water · {self.measurement_date}"
 
 
 class ExpenseItem(models.Model):
@@ -142,6 +172,7 @@ class ExpenseItem(models.Model):
         DAMAGES = "damages", "Ζημιές"
         ANNUAL_SERVICING = "annual_servicing", "Ετήσια συντήρηση"
         OWNERS_ONLY = "owners_only", "Έξοδα μόνο ιδιοκτητών"
+        FUND_INCREASE = "fund_increase", "Αύξηση αποθεματικού"
         OTHER = "other", "Λοιπά"
 
     building = models.ForeignKey(Building, on_delete=models.CASCADE, related_name="expenses")
@@ -159,6 +190,9 @@ class ExpenseItem(models.Model):
     def save(self, *args, **kwargs):
         self.month = self.expense_date.strftime("%Y-%m")
         super().save(*args, **kwargs)
+
+    def __str__(self) -> str:
+        return f"{self.get_expense_category_display()} · {self.month} · {self.amount}"
 
 
 class Invoice(models.Model):
@@ -185,6 +219,9 @@ class Invoice(models.Model):
     class Meta:
         unique_together = ("apartment", "month")
 
+    def __str__(self) -> str:
+        return f"{self.apartment} · {self.month} · {self.get_status_display()} · {self.invoice_total}"
+
 
 class PaymentRecord(models.Model):
     class Method(models.TextChoices):
@@ -203,6 +240,9 @@ class PaymentRecord(models.Model):
     created_by_user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
+    def __str__(self) -> str:
+        return f"{self.apartment} · {self.payment_date} · {self.amount} ({self.get_method_display()})"
+
 
 class InvoiceDocument(models.Model):
     class DocumentType(models.TextChoices):
@@ -216,6 +256,9 @@ class InvoiceDocument(models.Model):
     mime_type = models.CharField(max_length=127, default="application/pdf")
     content = models.BinaryField()
     created_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self) -> str:
+        return f"{self.get_document_type_display()} · {self.invoice} · {self.file_name}"
 
 
 class NotificationDispatch(models.Model):
@@ -237,3 +280,6 @@ class NotificationDispatch(models.Model):
     error_message = models.TextField(blank=True)
     sent_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self) -> str:
+        return f"{self.get_notification_type_display()} · {self.invoice} · {self.get_status_display()}"

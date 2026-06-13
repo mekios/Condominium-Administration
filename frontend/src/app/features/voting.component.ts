@@ -5,9 +5,9 @@ import { HttpClient } from '@angular/common/http';
 import { Router, RouterLink } from '@angular/router';
 import { finalize } from 'rxjs';
 
-import { API_BASE } from '../core/api.constants';
+import { API_BASE, DEFAULT_BUILDING_ID } from '../core/api.constants';
 import { AdminModeService } from '../core/admin-mode.service';
-import { Apartment, AppDataService, Me } from '../core/app-data.service';
+import { AppDataService, Me } from '../core/app-data.service';
 
 type VoteSession = {
   id: number;
@@ -23,7 +23,6 @@ type VoteSession = {
 };
 
 type SessionFormModel = {
-  building: number | null;
   session_type: 'motion' | 'administrator_election';
   title: string;
   description: string;
@@ -62,7 +61,7 @@ type SessionFormModel = {
             <strong class="card-title">{{ session.title }}</strong>
             <span class="status status-active">Ενεργή</span>
           </div>
-          <p class="meta">{{ getSessionTypeLabel(session.session_type) }} - {{ session.building_name }}</p>
+          <p class="meta">{{ getSessionTypeLabel(session.session_type) }}</p>
           <p class="meta">Λήξη: {{ session.end_at | date: 'dd/MM/yyyy HH:mm' }}</p>
           <p class="meta" *ngIf="session.vote_options_json.length">Επιλογές: {{ session.vote_options_json.join(' / ') }}</p>
           <p class="desc" *ngIf="session.description">{{ session.description }}</p>
@@ -84,7 +83,7 @@ type SessionFormModel = {
               {{ getStatusLabel(session.status) }}
             </span>
           </div>
-          <p class="meta">{{ getSessionTypeLabel(session.session_type) }} - {{ session.building_name }}</p>
+          <p class="meta">{{ getSessionTypeLabel(session.session_type) }}</p>
           <p class="meta">Λήξη: {{ session.end_at | date: 'dd/MM/yyyy HH:mm' }}</p>
           <p class="meta" *ngIf="session.vote_options_json.length">Επιλογές: {{ session.vote_options_json.join(' / ') }}</p>
           <p class="desc" *ngIf="session.description">{{ session.description }}</p>
@@ -104,13 +103,6 @@ type SessionFormModel = {
         </header>
 
         <div class="admin-grid">
-          <label>
-            Κτίριο
-            <select [(ngModel)]="createForm.building">
-              <option [ngValue]="null">Επιλογή...</option>
-              <option *ngFor="let b of buildingOptions" [ngValue]="b.id">{{ b.name }}</option>
-            </select>
-          </label>
           <label>
             Τύπος
             <select [(ngModel)]="createForm.session_type">
@@ -252,7 +244,6 @@ type SessionFormModel = {
 export class VotingComponent implements OnInit {
   me: Me | null = null;
   writeEnabled = false;
-  apartments: Apartment[] = [];
   sessions: VoteSession[] = [];
   loading = false;
   adminSaving = false;
@@ -284,12 +275,6 @@ export class VotingComponent implements OnInit {
       next: (me) => {
         this.me = me;
         this.refreshWriteEnabled();
-      },
-    });
-    this.data.getApartments().subscribe({
-      next: (rows) => {
-        this.apartments = rows;
-        this.resetCreateForm();
       },
     });
     this.http
@@ -325,7 +310,7 @@ export class VotingComponent implements OnInit {
   }
 
   openCreatePopup(): void {
-    this.resetCreateForm();
+    this.createForm = this.buildEmptySessionForm();
     this.adminMessage = '';
     this.showCreatePopup = true;
   }
@@ -342,14 +327,6 @@ export class VotingComponent implements OnInit {
     return this.sessions.filter((x) => x.status !== 'active');
   }
 
-  get buildingOptions(): Array<{ id: number; name: string }> {
-    const map = new Map<number, string>();
-    for (const apartment of this.apartments) {
-      if (!map.has(apartment.building)) map.set(apartment.building, apartment.building_name);
-    }
-    return [...map.entries()].map(([id, name]) => ({ id, name })).sort((a, b) => a.name.localeCompare(b.name, 'el'));
-  }
-
   getSessionTypeLabel(sessionType: VoteSession['session_type']): string {
     return sessionType === 'administrator_election' ? 'Εκλογή διαχειριστή' : 'Θέμα';
   }
@@ -360,16 +337,10 @@ export class VotingComponent implements OnInit {
     return 'Πρόχειρη';
   }
 
-  private resetCreateForm(): void {
-    const firstBuildingId = this.buildingOptions[0]?.id ?? null;
-    this.createForm = { ...this.buildEmptySessionForm(), building: firstBuildingId };
-  }
-
   private buildEmptySessionForm(): SessionFormModel {
     const now = new Date();
     const tomorrow = new Date(now.getTime() + 24 * 60 * 60 * 1000);
     return {
-      building: null,
       session_type: 'motion',
       title: '',
       description: '',
@@ -381,9 +352,9 @@ export class VotingComponent implements OnInit {
   }
 
   private toSessionPayload(form: SessionFormModel): Record<string, unknown> | null {
-    if (!form.building || !form.title.trim() || !form.start_local || !form.end_local) return null;
+    if (!form.title.trim() || !form.start_local || !form.end_local) return null;
     return {
-      building: form.building,
+      building: DEFAULT_BUILDING_ID,
       session_type: form.session_type,
       title: form.title.trim(),
       description: form.description?.trim() || '',

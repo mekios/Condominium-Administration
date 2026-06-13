@@ -23,6 +23,7 @@ from rest_framework.response import Response
 from .models import (
     Apartment,
     ApartmentUser,
+    Building,
     DesignatedVoter,
     ExpenseItem,
     HeatedWaterMeasurementInput,
@@ -37,6 +38,7 @@ from .models import (
 from .serializers import (
     ApartmentHeatingFactorsSerializer,
     ApartmentSerializer,
+    BuildingSerializer,
     DesignatedVoterAssignSerializer,
     ExpenseItemSerializer,
     HeatedWaterBulkUpsertSerializer,
@@ -197,6 +199,124 @@ def _status_label(status: str) -> str:
     return "Πρόχειρο"
 
 
+_DESCRIPTION_AS_LABEL_CATEGORIES = {
+    ExpenseItem.Category.DAMAGES,
+    ExpenseItem.Category.ANNUAL_SERVICING,
+    ExpenseItem.Category.OWNERS_ONLY,
+    ExpenseItem.Category.FUND_INCREASE,
+    ExpenseItem.Category.OTHER,
+}
+
+
+def _adjust_building_fund_balance(building_id: int, delta: Decimal) -> None:
+    building = Building.objects.select_for_update().get(pk=building_id)
+    building.fund_balance = q2(building.fund_balance + delta)
+    building.save(update_fields=["fund_balance", "updated_at"])
+
+
+def _reconcile_fund_increase_expense(
+    *,
+    old_building_id: int,
+    old_category: str,
+    old_amount: Decimal,
+    new_building_id: int,
+    new_category: str,
+    new_amount: Decimal,
+) -> None:
+    if old_category == ExpenseItem.Category.FUND_INCREASE:
+        _adjust_building_fund_balance(old_building_id, -old_amount)
+    if new_category == ExpenseItem.Category.FUND_INCREASE:
+        _adjust_building_fund_balance(new_building_id, new_amount)
+
+_CHARGE_BUCKET_LABELS = {
+    "heating_radiators_total": "Καλοριφέρ",
+    "heated_water_energy_total": "Ζεστό νερό",
+    "water_consumption_total": "Νερό",
+    "common_recurring_total": "Κοινόχρηστα",
+    "common_non_recurring_total": "Έκτακτα",
+    "owners_only_total": "Μόνο ιδιοκτήτες",
+}
+
+_BUCKET_ORDER = [
+    "heating_radiators_total",
+    "heated_water_energy_total",
+    "water_consumption_total",
+    "common_recurring_total",
+    "common_non_recurring_total",
+    "owners_only_total",
+]
+
+
+def _expense_display_label(expense: ExpenseItem) -> str:
+    category_label = expense.get_expense_category_display()
+    if expense.expense_category in _DESCRIPTION_AS_LABEL_CATEGORIES and expense.description.strip():
+        return f"{category_label}: {expense.description.strip()}"
+    return category_label
+
+
+def _record_expense_breakdown(
+    breakdown: dict[int, list[dict]],
+    *,
+    building_apartments: list[Apartment],
+    expense: ExpenseItem,
+    expense_amount: Decimal,
+    allocations: dict[int, Decimal],
+    bucket_key: str,
+) -> None:
+    bucket_label = _CHARGE_BUCKET_LABELS[bucket_key]
+    label = _expense_display_label(expense)
+    date_str = expense.expense_date.isoformat()
+    for apartment in building_apartments:
+        share = allocations.get(apartment.id, Decimal("0.00"))
+        if share <= Decimal("0"):
+            continue
+        breakdown[apartment.id].append(
+            {
+                "bucket_key": bucket_key,
+                "bucket": bucket_label,
+                "label": label,
+                "date": date_str,
+                "expense_total": expense_amount,
+                "share": share,
+            }
+        )
+
+
+def _build_grouped_invoice_pdf_rows(apartment_lines: list[dict]) -> tuple[list[list[str]], set[int]]:
+    grouped: dict[str, list[dict]] = {bucket_key: [] for bucket_key in _BUCKET_ORDER}
+    for line in apartment_lines:
+        bucket_key = line.get("bucket_key")
+        if bucket_key in grouped:
+            grouped[bucket_key].append(line)
+
+    rows: list[list[str]] = []
+    emphasis_rows: set[int] = set()
+    grand_share = Decimal("0.00")
+
+    for bucket_key in _BUCKET_ORDER:
+        lines = grouped[bucket_key]
+        if not lines:
+            continue
+
+        rows.append([_CHARGE_BUCKET_LABELS[bucket_key], "", "", ""])
+        emphasis_rows.add(len(rows) - 1)
+
+        for line in sorted(lines, key=lambda item: (item["date"], item["label"])):
+            rows.append(
+                [
+                    line["label"],
+                    line["date"],
+                    _format_currency(line["expense_total"]),
+                    _format_currency(line["share"]),
+                ]
+            )
+            grand_share += line["share"]
+
+    rows.append(["Σύνολο", "", "", _format_currency(q2(grand_share))])
+    emphasis_rows.add(len(rows) - 1)
+    return rows, emphasis_rows
+
+
 def _payment_method_label(method: str) -> str:
     mapping = {
         PaymentRecord.Method.CASH: "Μετρητά",
@@ -216,6 +336,7 @@ def _build_branded_pdf(
     row_headers: list[str],
     rows: list[list[str]],
     totals: list[tuple[str, str]],
+    emphasis_rows: set[int] | None = None,
 ) -> bytes:
     normal_font, bold_font = _register_pdf_fonts()
     buffer = BytesIO()
@@ -274,28 +395,37 @@ def _build_branded_pdf(
     story.extend([meta_table, Spacer(1, 8 * mm)])
 
     table_data = [row_headers] + rows
-    main_table = Table(table_data, colWidths=[120 * mm, 56 * mm])
-    main_table.setStyle(
-        TableStyle(
+    if len(row_headers) == 4:
+        main_col_widths = [68 * mm, 26 * mm, 40 * mm, 42 * mm]
+    else:
+        main_col_widths = [120 * mm, 56 * mm]
+    main_table = Table(table_data, colWidths=main_col_widths)
+    table_style = [
+        ("FONTNAME", (0, 0), (-1, 0), bold_font),
+        ("FONTNAME", (0, 1), (-1, -1), normal_font),
+        ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#2A4587")),
+        ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+        ("TEXTCOLOR", (0, 1), (-1, -1), colors.HexColor("#1A2A53")),
+        ("LINEBELOW", (0, 0), (-1, 0), 1.6, colors.HexColor("#856DB3")),
+        ("ALIGN", (0, 0), (0, -1), "LEFT"),
+        ("ALIGN", (1, 0), (1, -1), "LEFT"),
+        ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.HexColor("#F7FAFF"), colors.HexColor("#F3EEFA")]),
+        ("BOX", (0, 0), (-1, -1), 1, colors.HexColor("#C8BAE2")),
+        ("INNERGRID", (0, 0), (-1, -1), 0.6, colors.HexColor("#DBD1ED")),
+        ("LEFTPADDING", (0, 0), (-1, -1), 9),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 9),
+        ("TOPPADDING", (0, 0), (-1, -1), 7),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 7),
+    ]
+    for row_idx in emphasis_rows or set():
+        table_row = row_idx + 1
+        table_style.extend(
             [
-                ("FONTNAME", (0, 0), (-1, 0), bold_font),
-                ("FONTNAME", (0, 1), (-1, -1), normal_font),
-                ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#2A4587")),
-                ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
-                ("TEXTCOLOR", (0, 1), (-1, -1), colors.HexColor("#1A2A53")),
-                ("LINEBELOW", (0, 0), (-1, 0), 1.6, colors.HexColor("#856DB3")),
-                ("ALIGN", (0, 0), (0, -1), "LEFT"),
-                ("ALIGN", (1, 0), (1, -1), "LEFT"),
-                ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.HexColor("#F7FAFF"), colors.HexColor("#F3EEFA")]),
-                ("BOX", (0, 0), (-1, -1), 1, colors.HexColor("#C8BAE2")),
-                ("INNERGRID", (0, 0), (-1, -1), 0.6, colors.HexColor("#DBD1ED")),
-                ("LEFTPADDING", (0, 0), (-1, -1), 9),
-                ("RIGHTPADDING", (0, 0), (-1, -1), 9),
-                ("TOPPADDING", (0, 0), (-1, -1), 7),
-                ("BOTTOMPADDING", (0, 0), (-1, -1), 7),
+                ("FONTNAME", (0, table_row), (-1, table_row), bold_font),
+                ("BACKGROUND", (0, table_row), (-1, table_row), colors.HexColor("#E8E0F4")),
             ]
         )
-    )
+    main_table.setStyle(TableStyle(table_style))
     story.extend([main_table, Spacer(1, 8 * mm)])
 
     totals_table = Table([[label, value] for label, value in totals], colWidths=[120 * mm, 56 * mm])
@@ -411,27 +541,42 @@ def _create_invoice_pdf(invoice: Invoice) -> tuple[str, bytes]:
         f"Υπόλοιπο: {_format_currency(invoice.outstanding_balance)}",
         "Τύπος: Μηνιαίος λογαριασμός",
     ]
-    rows = [
-        ["Καλοριφέρ", _format_currency(invoice.heating_radiators_total)],
-        ["Ζεστό νερό", _format_currency(invoice.heated_water_energy_total)],
-        ["Νερό", _format_currency(invoice.water_consumption_total)],
-        ["Κοινόχρηστα", _format_currency(invoice.common_recurring_total)],
-        ["Έκτακτα", _format_currency(invoice.common_non_recurring_total)],
-        ["Μόνο ιδιοκτήτες", _format_currency(invoice.owners_only_total)],
-    ]
     totals = [
         ("Σύνολο λογαριασμού", _format_currency(invoice.invoice_total)),
         ("Πληρωμένο", _format_currency(invoice.paid_total)),
         ("Υπόλοιπο", _format_currency(invoice.outstanding_balance)),
     ]
+
+    row_headers = ["Έξοδο", "Ημερομηνία", "Σύνολο εξόδου", "Μερίδιο"]
+    rows: list[list[str]] = []
+    emphasis_rows: set[int] = set()
+    result, error = _calculate_invoice_rows(invoice.month)
+    if not error:
+        _, _, breakdown = result
+        apartment_lines = breakdown.get(invoice.apartment_id, [])
+        if apartment_lines:
+            rows, emphasis_rows = _build_grouped_invoice_pdf_rows(apartment_lines)
+
+    if not rows:
+        row_headers = ["Κατηγορία χρέωσης", "Ποσό"]
+        rows = [
+            ["Καλοριφέρ", _format_currency(invoice.heating_radiators_total)],
+            ["Ζεστό νερό", _format_currency(invoice.heated_water_energy_total)],
+            ["Νερό", _format_currency(invoice.water_consumption_total)],
+            ["Κοινόχρηστα", _format_currency(invoice.common_recurring_total)],
+            ["Έκτακτα", _format_currency(invoice.common_non_recurring_total)],
+            ["Μόνο ιδιοκτήτες", _format_currency(invoice.owners_only_total)],
+        ]
+
     pdf_bytes = _build_branded_pdf(
         document_title="ΜΗΝΙΑΙΟΣ ΛΟΓΑΡΙΑΣΜΟΣ",
         document_subtitle="Ανάλυση χρεώσεων διαμερίσματος",
         meta_left=meta_left,
         meta_right=meta_right,
-        row_headers=["Κατηγορία χρέωσης", "Ποσό"],
+        row_headers=row_headers,
         rows=rows,
         totals=totals,
+        emphasis_rows=emphasis_rows if rows and len(row_headers) == 4 else None,
     )
     filename = f"invoice-{invoice.month}-{apartment_label}.pdf".replace(" ", "_")
     return filename, pdf_bytes
@@ -720,6 +865,7 @@ def _calculate_invoice_rows(month: str):
 
     measurement_context_cache = {}
     rows = {}
+    breakdown: dict[int, list[dict]] = {}
     for apartment in apartments:
         rows[apartment.id] = {
             "heating_radiators_total": Decimal("0"),
@@ -729,9 +875,12 @@ def _calculate_invoice_rows(month: str):
             "common_non_recurring_total": Decimal("0"),
             "owners_only_total": Decimal("0"),
         }
+        breakdown[apartment.id] = []
 
     for building_id, building_apartments in apartments_by_building.items():
         for expense in expenses_by_building.get(building_id, []):
+            if expense.expense_category == ExpenseItem.Category.FUND_INCREASE:
+                continue
             if expense.expense_category in (
                 ExpenseItem.Category.GAS_HEATING,
                 ExpenseItem.Category.WATER_HW_CONSUMPTION,
@@ -769,6 +918,14 @@ def _calculate_invoice_rows(month: str):
                 allocations = _allocate_amount_by_weights(expense_amount, weights)
                 for apartment in building_apartments:
                     rows[apartment.id][target_key] += allocations.get(apartment.id, Decimal("0.00"))
+                _record_expense_breakdown(
+                    breakdown,
+                    building_apartments=building_apartments,
+                    expense=expense,
+                    expense_amount=expense_amount,
+                    allocations=allocations,
+                    bucket_key=target_key,
+                )
             elif expense.expense_category in recurring_categories:
                 ownership_weights = {
                     apartment.id: Decimal(apartment.ownership_permille) / Decimal("1000") for apartment in building_apartments
@@ -776,6 +933,14 @@ def _calculate_invoice_rows(month: str):
                 allocations = _allocate_amount_by_weights(expense_amount, ownership_weights)
                 for apartment in building_apartments:
                     rows[apartment.id]["common_recurring_total"] += allocations.get(apartment.id, Decimal("0.00"))
+                _record_expense_breakdown(
+                    breakdown,
+                    building_apartments=building_apartments,
+                    expense=expense,
+                    expense_amount=expense_amount,
+                    allocations=allocations,
+                    bucket_key="common_recurring_total",
+                )
             elif expense.expense_category in non_recurring_categories:
                 ownership_weights = {
                     apartment.id: Decimal(apartment.ownership_permille) / Decimal("1000") for apartment in building_apartments
@@ -783,6 +948,14 @@ def _calculate_invoice_rows(month: str):
                 allocations = _allocate_amount_by_weights(expense_amount, ownership_weights)
                 for apartment in building_apartments:
                     rows[apartment.id]["common_non_recurring_total"] += allocations.get(apartment.id, Decimal("0.00"))
+                _record_expense_breakdown(
+                    breakdown,
+                    building_apartments=building_apartments,
+                    expense=expense,
+                    expense_amount=expense_amount,
+                    allocations=allocations,
+                    bucket_key="common_non_recurring_total",
+                )
             elif expense.expense_category in owners_only_categories:
                 ownership_weights = {
                     apartment.id: Decimal(apartment.ownership_permille) / Decimal("1000") for apartment in building_apartments
@@ -790,8 +963,37 @@ def _calculate_invoice_rows(month: str):
                 allocations = _allocate_amount_by_weights(expense_amount, ownership_weights)
                 for apartment in building_apartments:
                     rows[apartment.id]["owners_only_total"] += allocations.get(apartment.id, Decimal("0.00"))
+                _record_expense_breakdown(
+                    breakdown,
+                    building_apartments=building_apartments,
+                    expense=expense,
+                    expense_amount=expense_amount,
+                    allocations=allocations,
+                    bucket_key="owners_only_total",
+                )
 
-    return (apartments, rows), None
+    return (apartments, rows, breakdown), None
+
+
+class BuildingViewSet(
+    mixins.ListModelMixin,
+    mixins.RetrieveModelMixin,
+    mixins.UpdateModelMixin,
+    viewsets.GenericViewSet,
+):
+    serializer_class = BuildingSerializer
+    permission_classes = [IsAuthenticated]
+    queryset = Building.objects.all().order_by("id")
+
+    def update(self, request, *args, **kwargs):
+        if request.user.role not in ("superadmin", "administrator"):
+            return Response({"detail": "Απαγορεύεται."}, status=status.HTTP_403_FORBIDDEN)
+        return super().update(request, *args, **kwargs)
+
+    def partial_update(self, request, *args, **kwargs):
+        if request.user.role not in ("superadmin", "administrator"):
+            return Response({"detail": "Απαγορεύεται."}, status=status.HTTP_403_FORBIDDEN)
+        return super().partial_update(request, *args, **kwargs)
 
 
 class ApartmentViewSet(viewsets.ReadOnlyModelViewSet):
@@ -1380,22 +1582,50 @@ class ExpenseItemViewSet(AdminWriteRequiredMixin, viewsets.ModelViewSet):
     def create(self, request, *args, **kwargs):
         if not self.is_admin_write():
             return Response({"detail": "Απαγορεύεται."}, status=status.HTTP_403_FORBIDDEN)
-        return super().create(request, *args, **kwargs)
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        with transaction.atomic():
+            expense = serializer.save()
+            if expense.expense_category == ExpenseItem.Category.FUND_INCREASE:
+                _adjust_building_fund_balance(expense.building_id, Decimal(expense.amount))
+        headers = self.get_success_headers(serializer.data)
+        return Response(serializer.data, status=status.HTTP_201_CREATED, headers=headers)
 
     def update(self, request, *args, **kwargs):
         if not self.is_admin_write():
             return Response({"detail": "Απαγορεύεται."}, status=status.HTTP_403_FORBIDDEN)
-        return super().update(request, *args, **kwargs)
+        partial = kwargs.pop("partial", False)
+        instance = self.get_object()
+        serializer = self.get_serializer(instance, data=request.data, partial=partial)
+        serializer.is_valid(raise_exception=True)
+        old_building_id = instance.building_id
+        old_category = instance.expense_category
+        old_amount = Decimal(instance.amount)
+        with transaction.atomic():
+            expense = serializer.save()
+            _reconcile_fund_increase_expense(
+                old_building_id=old_building_id,
+                old_category=old_category,
+                old_amount=old_amount,
+                new_building_id=expense.building_id,
+                new_category=expense.expense_category,
+                new_amount=Decimal(expense.amount),
+            )
+        return Response(serializer.data)
 
     def partial_update(self, request, *args, **kwargs):
-        if not self.is_admin_write():
-            return Response({"detail": "Απαγορεύεται."}, status=status.HTTP_403_FORBIDDEN)
-        return super().partial_update(request, *args, **kwargs)
+        kwargs["partial"] = True
+        return self.update(request, *args, **kwargs)
 
     def destroy(self, request, *args, **kwargs):
         if not self.is_admin_write():
             return Response({"detail": "Απαγορεύεται."}, status=status.HTTP_403_FORBIDDEN)
-        return super().destroy(request, *args, **kwargs)
+        instance = self.get_object()
+        with transaction.atomic():
+            if instance.expense_category == ExpenseItem.Category.FUND_INCREASE:
+                _adjust_building_fund_balance(instance.building_id, -Decimal(instance.amount))
+            instance.delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)
 
 
 class InvoiceViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, viewsets.GenericViewSet):
@@ -1439,7 +1669,7 @@ class InvoiceViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, viewsets.
         result, error = _calculate_invoice_rows(month)
         if error:
             return Response(error, status=status.HTTP_400_BAD_REQUEST)
-        apartments, rows = result
+        apartments, rows, _breakdown = result
 
         preview_items = []
         for apartment in apartments:
@@ -1518,7 +1748,7 @@ class InvoiceViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, viewsets.
         result, error = _calculate_invoice_rows(month)
         if error:
             return Response(error, status=status.HTTP_400_BAD_REQUEST)
-        apartments, rows = result
+        apartments, rows, _breakdown = result
 
         with transaction.atomic():
             created_count = 0

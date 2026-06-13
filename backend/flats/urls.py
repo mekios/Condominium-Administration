@@ -2,6 +2,7 @@ from rest_framework.routers import DefaultRouter
 
 from .views import (
     ApartmentViewSet,
+    BuildingViewSet,
     ExpenseItemViewSet,
     HeatingMeasurementInputViewSet,
     HeatedWaterMeasurementInputViewSet,
@@ -11,6 +12,7 @@ from .views import (
 )
 
 router = DefaultRouter()
+router.register("buildings", BuildingViewSet, basename="buildings")
 router.register("apartments", ApartmentViewSet, basename="apartments")
 router.register("accounting/heating-inputs", HeatingMeasurementInputViewSet, basename="heating-inputs")
 router.register("accounting/heated-water-inputs", HeatedWaterMeasurementInputViewSet, basename="heated-water-inputs")

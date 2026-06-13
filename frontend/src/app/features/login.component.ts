@@ -1,4 +1,4 @@
-import { Component } from '@angular/core';
+import { Component, OnInit } from '@angular/core';
 import { FormControl, FormGroup, ReactiveFormsModule, Validators } from '@angular/forms';
 import { Router } from '@angular/router';
 import { NgIf } from '@angular/common';
@@ -94,7 +94,7 @@ import { AuthService } from '../core/auth.service';
     .error { color: #ff9fa5; margin-top: 0.85rem; font-size: 0.9rem; }
   `,
 })
-export class LoginComponent {
+export class LoginComponent implements OnInit {
   loading = false;
   error = false;
   form = new FormGroup({
@@ -106,6 +106,14 @@ export class LoginComponent {
     private readonly auth: AuthService,
     private readonly router: Router,
   ) {}
+
+  ngOnInit(): void {
+    this.auth.ensureSession().subscribe((valid) => {
+      if (valid) {
+        void this.router.navigateByUrl('/app/dashboard');
+      }
+    });
+  }
 
   submit(): void {
     this.error = false;

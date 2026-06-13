@@ -1,17 +1,14 @@
 import { Component, OnInit } from '@angular/core';
 import { NgFor, NgIf } from '@angular/common';
 import { FormsModule } from '@angular/forms';
-import { MatDatepickerModule } from '@angular/material/datepicker';
-import { MatFormFieldModule } from '@angular/material/form-field';
-import { MatInputModule } from '@angular/material/input';
 
 import { MonthFormatPipe } from '../core/month-format.pipe';
+import { DatePickerComponent } from '../core/date-picker/date-picker.component';
 import { EuroPipe } from '../core/euro.pipe';
 import { HttpClient } from '@angular/common/http';
 import { ActivatedRoute, Router } from '@angular/router';
 
-import { API_BASE } from '../core/api.constants';
-import { AppDataService, Apartment } from '../core/app-data.service';
+import { API_BASE, DEFAULT_BUILDING_ID } from '../core/api.constants';
 import { EXPENSE_CATEGORIES, getCategoryConfig } from '../core/expense-categories';
 
 type ExpensePayload = {
@@ -52,7 +49,7 @@ type DraftInvoiceItem = {
 @Component({
   standalone: true,
   selector: 'app-expense-edit',
-  imports: [NgIf, NgFor, FormsModule, MonthFormatPipe, EuroPipe, MatDatepickerModule, MatFormFieldModule, MatInputModule],
+  imports: [NgIf, NgFor, FormsModule, MonthFormatPipe, EuroPipe, DatePickerComponent],
   template: `
     <section class="panel">
       <div class="panel-head">
@@ -64,12 +61,6 @@ type DraftInvoiceItem = {
       <p class="hint" *ngIf="message">{{ message }}</p>
 
       <div class="form-grid" *ngIf="expense && !loading">
-        <label>
-          Κτίριο
-          <select [(ngModel)]="expense.building">
-            <option *ngFor="let bid of buildingIds" [ngValue]="bid">Κτίριο #{{ bid }}</option>
-          </select>
-        </label>
         <label>
           Κατηγορία
           <div class="category-select-wrap">
@@ -87,28 +78,27 @@ type DraftInvoiceItem = {
             </select>
           </div>
         </label>
-        <mat-form-field>
-          <mat-label>Ημερομηνία εξόδου</mat-label>
-          <input matInput [matDatepicker]="expenseDatePicker" [value]="toDate(expense.expense_date)" (click)="expenseDatePicker.open()" (dateChange)="setExpenseDate($event.value)" />
-          <mat-datepicker-toggle matIconSuffix [for]="expenseDatePicker"></mat-datepicker-toggle>
-          <mat-datepicker #expenseDatePicker></mat-datepicker>
-        </mat-form-field>
+        <app-date-picker
+          label="Ημερομηνία εξόδου"
+          [value]="expense.expense_date"
+          (valueChange)="setExpenseDate($event)"
+        />
         <label>
           Ποσό
           <input type="number" step="0.01" [(ngModel)]="expense.amount" />
         </label>
-        <mat-form-field *ngIf="requiresMeasurementRange()">
-          <mat-label>Έναρξη επηρεαζόμενων μετρήσεων</mat-label>
-          <input matInput [matDatepicker]="affectedStartPicker" [value]="toDate(expense.affected_period_start || '')" (click)="affectedStartPicker.open()" (dateChange)="setAffectedPeriodStart($event.value)" />
-          <mat-datepicker-toggle matIconSuffix [for]="affectedStartPicker"></mat-datepicker-toggle>
-          <mat-datepicker #affectedStartPicker></mat-datepicker>
-        </mat-form-field>
-        <mat-form-field *ngIf="requiresMeasurementRange()">
-          <mat-label>Λήξη επηρεαζόμενων μετρήσεων</mat-label>
-          <input matInput [matDatepicker]="affectedEndPicker" [value]="toDate(expense.affected_period_end || '')" (click)="affectedEndPicker.open()" (dateChange)="setAffectedPeriodEnd($event.value)" />
-          <mat-datepicker-toggle matIconSuffix [for]="affectedEndPicker"></mat-datepicker-toggle>
-          <mat-datepicker #affectedEndPicker></mat-datepicker>
-        </mat-form-field>
+        <app-date-picker
+          *ngIf="requiresMeasurementRange()"
+          label="Έναρξη επηρεαζόμενων μετρήσεων"
+          [value]="expense.affected_period_start || ''"
+          (valueChange)="setAffectedPeriodStart($event)"
+        />
+        <app-date-picker
+          *ngIf="requiresMeasurementRange()"
+          label="Λήξη επηρεαζόμενων μετρήσεων"
+          [value]="expense.affected_period_end || ''"
+          (valueChange)="setAffectedPeriodEnd($event)"
+        />
         <label class="full">
           Περιγραφή
           <input type="text" [(ngModel)]="expense.description" />
@@ -288,8 +278,6 @@ export class ExpenseEditComponent implements OnInit {
   draftLoading = false;
   message = '';
   expense: ExpenseItem | null = null;
-  apartments: Apartment[] = [];
-  buildingIds: number[] = [];
   previewMonth = '';
   draftItems: DraftInvoiceItem[] = [];
   categories = EXPENSE_CATEGORIES;
@@ -298,23 +286,12 @@ export class ExpenseEditComponent implements OnInit {
     private readonly http: HttpClient,
     private readonly route: ActivatedRoute,
     private readonly router: Router,
-    private readonly data: AppDataService,
   ) {}
 
   ngOnInit(): void {
     const id = this.route.snapshot.paramMap.get('id');
     this.isCreateMode = id === 'new' || this.route.snapshot.routeConfig?.path === 'expenses/new';
-    this.data.getApartments().subscribe({
-      next: (apartments) => {
-        this.apartments = apartments;
-        this.buildingIds = [...new Set(apartments.map((apartment) => apartment.building))];
-        this.loadExpense(id);
-      },
-      error: () => {
-        this.message = 'Δεν ήταν δυνατή η φόρτωση διαμερισμάτων.';
-        this.loading = false;
-      },
-    });
+    this.loadExpense(id);
   }
 
   getIconPath(category: string): string | null {
@@ -344,7 +321,7 @@ export class ExpenseEditComponent implements OnInit {
     }
     this.saving = true;
     const payload: ExpensePayload = {
-      building: this.expense.building,
+      building: DEFAULT_BUILDING_ID,
       expense_category: this.expense.expense_category,
       expense_date: this.expense.expense_date,
       affected_period_start: this.expense.affected_period_start || null,
@@ -382,25 +359,19 @@ export class ExpenseEditComponent implements OnInit {
     this.loadDraftPreview();
   }
 
-  toDate(value: string): Date | null {
-    if (!value) return null;
-    const d = new Date(`${value}T00:00:00`);
-    return Number.isNaN(d.getTime()) ? null : d;
+  setExpenseDate(value: string): void {
+    if (!value || !this.expense) return;
+    this.expense.expense_date = value;
   }
 
-  setExpenseDate(value: Date | null): void {
+  setAffectedPeriodStart(value: string): void {
     if (!value || !this.expense) return;
-    this.expense.expense_date = this.toIsoDate(value);
+    this.expense.affected_period_start = value;
   }
 
-  setAffectedPeriodStart(value: Date | null): void {
+  setAffectedPeriodEnd(value: string): void {
     if (!value || !this.expense) return;
-    this.expense.affected_period_start = this.toIsoDate(value);
-  }
-
-  setAffectedPeriodEnd(value: Date | null): void {
-    if (!value || !this.expense) return;
-    this.expense.affected_period_end = this.toIsoDate(value);
+    this.expense.affected_period_end = value;
   }
 
   private loadExpense(id: string | null): void {
@@ -408,7 +379,7 @@ export class ExpenseEditComponent implements OnInit {
       const today = new Date().toISOString().slice(0, 10);
       this.expense = {
         id: 0,
-        building: this.buildingIds[0] ?? 0,
+        building: DEFAULT_BUILDING_ID,
         expense_category: 'gas_heating_bill',
         expense_date: today,
         month: today.slice(0, 7),
@@ -448,7 +419,7 @@ export class ExpenseEditComponent implements OnInit {
   }
 
   private loadDraftPreview(): void {
-    if (!this.expense || !this.previewMonth || !this.expense.building) {
+    if (!this.expense || !this.previewMonth) {
       this.draftItems = [];
       return;
     }
@@ -456,9 +427,6 @@ export class ExpenseEditComponent implements OnInit {
     this.http.get<{ month: string; items: DraftInvoiceItem[] }>(`${API_BASE}/api/invoices/preview/?month=${this.previewMonth}`).subscribe({
       next: (resp) => {
         this.draftItems = resp.items
-          .filter((item) =>
-            this.apartments.some((apartment) => apartment.id === item.apartment && apartment.building === this.expense?.building),
-          )
           .sort((a, b) => this.extractUnitCode(a.apartment_unit_code).localeCompare(this.extractUnitCode(b.apartment_unit_code), 'el'));
         this.draftLoading = false;
       },
@@ -471,12 +439,5 @@ export class ExpenseEditComponent implements OnInit {
 
   private extractUnitCode(apartmentLabel: string): string {
     return apartmentLabel.split('-')[0].trim();
-  }
-
-  private toIsoDate(value: Date): string {
-    const y = value.getFullYear();
-    const m = String(value.getMonth() + 1).padStart(2, '0');
-    const d = String(value.getDate()).padStart(2, '0');
-    return `${y}-${m}-${d}`;
   }
 }

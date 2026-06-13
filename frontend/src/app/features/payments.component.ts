@@ -1,15 +1,13 @@
 import { Component, OnInit } from '@angular/core';
 import { NgFor, NgIf } from '@angular/common';
 import { FormsModule } from '@angular/forms';
-import { MatDatepickerModule } from '@angular/material/datepicker';
-import { MatFormFieldModule } from '@angular/material/form-field';
-import { MatInputModule } from '@angular/material/input';
 
 import { HttpClient } from '@angular/common/http';
 
 import { API_BASE } from '../core/api.constants';
 import { AdminModeService } from '../core/admin-mode.service';
 import { AppDataService, Invoice, Me } from '../core/app-data.service';
+import { DatePickerComponent } from '../core/date-picker/date-picker.component';
 import { DialogService } from '../core/dialog/dialog.service';
 import { EuroPipe } from '../core/euro.pipe';
 import { MonthPickerComponent } from '../core/month-picker/month-picker.component';
@@ -31,7 +29,7 @@ type PaymentRecord = {
 @Component({
   standalone: true,
   selector: 'app-payments',
-  imports: [NgFor, NgIf, FormsModule, EuroPipe, MonthPickerComponent, MatDatepickerModule, MatFormFieldModule, MatInputModule],
+  imports: [NgFor, NgIf, FormsModule, EuroPipe, MonthPickerComponent, DatePickerComponent],
   template: `
     <section class="panel">
       <div class="panel-head">
@@ -57,12 +55,11 @@ type PaymentRecord = {
           Ποσό
           <input type="number" step="0.01" [(ngModel)]="paymentForm.amount" />
         </label>
-        <mat-form-field>
-          <mat-label>Ημερομηνία πληρωμής</mat-label>
-          <input matInput [matDatepicker]="paymentDatePicker" [value]="dateToDate(paymentForm.payment_date)" (click)="paymentDatePicker.open()" (dateChange)="onPaymentDateChange($event.value)" />
-          <mat-datepicker-toggle matIconSuffix [for]="paymentDatePicker"></mat-datepicker-toggle>
-          <mat-datepicker #paymentDatePicker></mat-datepicker>
-        </mat-form-field>
+        <app-date-picker
+          label="Ημερομηνία πληρωμής"
+          [value]="paymentForm.payment_date"
+          (valueChange)="paymentForm.payment_date = $event"
+        />
         <label>
           Μέθοδος
           <select [(ngModel)]="paymentForm.method">
@@ -253,16 +250,5 @@ export class PaymentsComponent implements OnInit {
     if (!month) return;
     this.month = month;
     this.loadAll();
-  }
-
-  dateToDate(value: string): Date | null {
-    if (!value) return null;
-    const d = new Date(`${value}T00:00:00`);
-    return Number.isNaN(d.getTime()) ? null : d;
-  }
-
-  onPaymentDateChange(value: Date | null): void {
-    if (!value) return;
-    this.paymentForm.payment_date = `${value.getFullYear()}-${String(value.getMonth() + 1).padStart(2, '0')}-${String(value.getDate()).padStart(2, '0')}`;
   }
 }

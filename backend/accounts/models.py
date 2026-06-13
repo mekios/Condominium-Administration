@@ -10,3 +10,6 @@ class User(AbstractUser):
 
     role = models.CharField(max_length=32, choices=Role.choices, default=Role.USER)
     preferred_language = models.CharField(max_length=8, default="el")
+
+    def __str__(self) -> str:
+        return f"{self.username} ({self.get_role_display()})"

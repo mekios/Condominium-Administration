@@ -1,4 +1,5 @@
 import os
+from datetime import timedelta
 from pathlib import Path
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
@@ -131,6 +132,11 @@ REST_FRAMEWORK = {
     "DEFAULT_PERMISSION_CLASSES": (
         "rest_framework.permissions.IsAuthenticated",
     ),
+}
+
+SIMPLE_JWT = {
+    "ACCESS_TOKEN_LIFETIME": timedelta(hours=8),
+    "REFRESH_TOKEN_LIFETIME": timedelta(days=30),
 }
 
 CORS_ALLOWED_ORIGINS = [

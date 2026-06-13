@@ -5,7 +5,7 @@ import { HttpClient } from '@angular/common/http';
 import { ActivatedRoute, RouterLink } from '@angular/router';
 import { finalize } from 'rxjs';
 
-import { API_BASE } from '../core/api.constants';
+import { API_BASE, DEFAULT_BUILDING_ID } from '../core/api.constants';
 import { AdminModeService } from '../core/admin-mode.service';
 import { Apartment, AppDataService, Me } from '../core/app-data.service';
 
@@ -54,7 +54,7 @@ type VoteResults = {
         <button class="btn btn-ghost" (click)="load()" [disabled]="loading">{{ loading ? 'Φόρτωση...' : 'Ανανέωση' }}</button>
       </div>
       <h2 *ngIf="session">{{ session.title }}</h2>
-      <p *ngIf="session">{{ getSessionTypeLabel(session.session_type) }} - {{ session.building_name }} - {{ getStatusLabel(session.status) }}</p>
+      <p *ngIf="session">{{ getSessionTypeLabel(session.session_type) }} - {{ getStatusLabel(session.status) }}</p>
       <p class="hint error" *ngIf="message">{{ message }}</p>
     </section>
 
@@ -306,7 +306,7 @@ export class VotingDetailComponent implements OnInit {
       next: (rows) => {
         this.apartments = rows;
         if (this.session) {
-          this.eligibleApartments = this.apartments.filter((a) => a.building === this.session!.building);
+          this.eligibleApartments = this.apartments.filter((a) => a.building === DEFAULT_BUILDING_ID);
         }
       },
     });
@@ -316,7 +316,7 @@ export class VotingDetailComponent implements OnInit {
       .subscribe({
         next: (session) => {
           this.session = session;
-          this.eligibleApartments = this.apartments.filter((a) => a.building === session.building);
+          this.eligibleApartments = this.apartments.filter((a) => a.building === DEFAULT_BUILDING_ID);
           this.loadVotes();
           this.loadResults();
         },

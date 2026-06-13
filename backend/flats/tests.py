@@ -436,6 +436,49 @@ class InvoiceGenerationTests(APITestCase):
         self.assertEqual(i1.owners_only_total, Decimal("100.00"))
         self.assertEqual(i2.owners_only_total, Decimal("100.00"))
 
+    def test_invoice_pdf_includes_expense_breakdown(self):
+        from flats.views import _build_grouped_invoice_pdf_rows, _calculate_invoice_rows, _create_invoice_pdf
+
+        month = "2026-06"
+        ExpenseItem.objects.create(
+            building=self.building,
+            expense_category=ExpenseItem.Category.CLEANING,
+            expense_date=date(2026, 6, 5),
+            amount=Decimal("60.00"),
+            created_by_user=self.admin,
+        )
+        ExpenseItem.objects.create(
+            building=self.building,
+            expense_category=ExpenseItem.Category.OTHER,
+            expense_date=date(2026, 6, 12),
+            amount=Decimal("40.00"),
+            description="Αντικατάσταση λάμπας",
+            created_by_user=self.admin,
+        )
+
+        self.client.post(reverse("invoices-generate"), {"month": month}, format="json")
+        invoice = Invoice.objects.get(apartment=self.a1, month=month)
+
+        result, error = _calculate_invoice_rows(month)
+        self.assertIsNone(error)
+        _, _, breakdown = result
+        self.assertEqual(len(breakdown[self.a1.id]), 2)
+        bucket_keys = {line["bucket_key"] for line in breakdown[self.a1.id]}
+        self.assertEqual(bucket_keys, {"common_recurring_total", "common_non_recurring_total"})
+        share_total = sum((line["share"] for line in breakdown[self.a1.id]), Decimal("0.00"))
+        self.assertEqual(share_total, invoice.invoice_total)
+
+        grouped_rows, emphasis_rows = _build_grouped_invoice_pdf_rows(breakdown[self.a1.id])
+        self.assertEqual(grouped_rows[0][0], "Κοινόχρηστα")
+        self.assertEqual(grouped_rows[2][0], "Έκτακτα")
+        self.assertEqual(grouped_rows[-1][0], "Σύνολο")
+        self.assertIn(0, emphasis_rows)
+        self.assertIn(len(grouped_rows) - 1, emphasis_rows)
+
+        _, pdf_bytes = _create_invoice_pdf(invoice)
+        self.assertTrue(pdf_bytes.startswith(b"%PDF"))
+        self.assertGreater(len(pdf_bytes), 5000)
+
     def test_generate_response_includes_summary_and_warnings(self):
         month = "2026-09"
         ExpenseItem.objects.create(
@@ -1235,3 +1278,118 @@ class AdminDestructiveOperationsTests(APITestCase):
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertTrue(response.data["locked"])
+
+
+class BuildingFundBalanceTests(APITestCase):
+    def setUp(self):
+        self.admin = User.objects.create_user(
+            username="admin_fund",
+            password="pass1234",
+            role=User.Role.ADMINISTRATOR,
+        )
+        self.user = User.objects.create_user(
+            username="tenant_fund",
+            password="pass1234",
+            role=User.Role.USER,
+        )
+        self.building = Building.objects.create(name="Fund B1", fund_balance=Decimal("4500.00"))
+
+    def test_authenticated_user_can_read_building_fund_balance(self):
+        self.client.force_authenticate(user=self.user)
+        response = self.client.get(reverse("buildings-detail", args=[self.building.id]))
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["fund_balance"], "4500.00")
+
+    def test_admin_can_update_building_fund_balance(self):
+        self.client.force_authenticate(user=self.admin)
+        response = self.client.patch(
+            reverse("buildings-detail", args=[self.building.id]),
+            {"fund_balance": "5200.50"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["fund_balance"], "5200.50")
+        self.building.refresh_from_db()
+        self.assertEqual(self.building.fund_balance, Decimal("5200.50"))
+
+    def test_regular_user_cannot_update_building_fund_balance(self):
+        self.client.force_authenticate(user=self.user)
+        response = self.client.patch(
+            reverse("buildings-detail", args=[self.building.id]),
+            {"fund_balance": "100.00"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.building.refresh_from_db()
+        self.assertEqual(self.building.fund_balance, Decimal("4500.00"))
+
+
+class FundIncreaseExpenseTests(APITestCase):
+    def setUp(self):
+        self.admin = User.objects.create_user(
+            username="admin_fund_inc",
+            password="pass1234",
+            role=User.Role.ADMINISTRATOR,
+        )
+        self.client.force_authenticate(user=self.admin)
+        self.building = Building.objects.create(name="FundInc B1", fund_balance=Decimal("1000.00"))
+
+    def test_fund_increase_expense_adds_to_building_balance(self):
+        response = self.client.post(
+            reverse("expenses-list"),
+            {
+                "building": self.building.id,
+                "expense_category": ExpenseItem.Category.FUND_INCREASE,
+                "expense_date": "2026-07-01",
+                "amount": "250.00",
+                "description": "Εισφορά ιδιοκτητών",
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.building.refresh_from_db()
+        self.assertEqual(self.building.fund_balance, Decimal("1250.00"))
+
+    def test_fund_increase_expense_delete_reverses_balance(self):
+        expense = ExpenseItem.objects.create(
+            building=self.building,
+            expense_category=ExpenseItem.Category.FUND_INCREASE,
+            expense_date=date(2026, 7, 1),
+            amount=Decimal("250.00"),
+            created_by_user=self.admin,
+        )
+        self.building.fund_balance = Decimal("1250.00")
+        self.building.save(update_fields=["fund_balance", "updated_at"])
+
+        response = self.client.delete(reverse("expenses-detail", args=[expense.id]))
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+        self.building.refresh_from_db()
+        self.assertEqual(self.building.fund_balance, Decimal("1000.00"))
+
+    def test_fund_increase_excluded_from_invoice_allocation(self):
+        month = "2026-07"
+        ExpenseItem.objects.create(
+            building=self.building,
+            expense_category=ExpenseItem.Category.FUND_INCREASE,
+            expense_date=date(2026, 7, 5),
+            amount=Decimal("300.00"),
+            created_by_user=self.admin,
+        )
+        self.building.fund_balance = Decimal("1300.00")
+        self.building.save(update_fields=["fund_balance", "updated_at"])
+
+        Apartment.objects.create(
+            building=self.building,
+            unit_code="A1",
+            ownership_permille=Decimal("1000"),
+            heating_e_factor=Decimal("0.10"),
+            heating_f_factor=Decimal("0.20"),
+        )
+
+        from flats.views import _calculate_invoice_rows
+
+        result, error = _calculate_invoice_rows(month)
+        self.assertIsNone(error)
+        _, rows, breakdown = result
+        self.assertTrue(all(sum(row.values()) == Decimal("0") for row in rows.values()))
+        self.assertTrue(all(len(lines) == 0 for lines in breakdown.values()))

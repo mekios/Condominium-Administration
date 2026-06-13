@@ -3,6 +3,7 @@ from rest_framework import serializers
 from .models import (
     Apartment,
     ApartmentUser,
+    Building,
     DesignatedVoter,
     ExpenseItem,
     HeatingMeasurementInput,
@@ -14,6 +15,13 @@ from .models import (
     Vote,
     VoteSession,
 )
+
+
+class BuildingSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Building
+        fields = ["id", "name", "fund_balance"]
+        read_only_fields = ["name"]
 
 
 class ApartmentSerializer(serializers.ModelSerializer):
@@ -133,6 +141,9 @@ class ExpenseItemSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError(
                 "Για θέρμανση/ζεστό νερό απαιτείται εύρος ημερομηνιών μετρήσεων (affected_period_start/affected_period_end)."
             )
+        if category == ExpenseItem.Category.FUND_INCREASE:
+            attrs["affected_period_start"] = None
+            attrs["affected_period_end"] = None
         if affected_start and affected_end and affected_start > affected_end:
             raise serializers.ValidationError("Το affected_period_start δεν μπορεί να είναι μετά το affected_period_end.")
         return attrs
