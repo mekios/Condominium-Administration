@@ -15,6 +15,30 @@ export const authGuard: CanActivateFn = () => {
   );
 };
 
+export const passwordChangeGuard: CanActivateFn = (route) => {
+  if (route.routeConfig?.path === 'set-password') {
+    return true;
+  }
+
+  const data = inject(AppDataService);
+  const router = inject(Router);
+
+  return data.getMe().pipe(
+    map((me) => (me.must_change_password ? router.parseUrl('/app/set-password') : true)),
+    catchError(() => of(router.parseUrl('/login'))),
+  );
+};
+
+export const setPasswordPageGuard: CanActivateFn = () => {
+  const data = inject(AppDataService);
+  const router = inject(Router);
+
+  return data.getMe().pipe(
+    map((me) => (me.must_change_password ? true : router.parseUrl('/app/dashboard'))),
+    catchError(() => of(router.parseUrl('/login'))),
+  );
+};
+
 export const adminOnlyGuard: CanActivateFn = () => {
   const auth = inject(AuthService);
   const router = inject(Router);

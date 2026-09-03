@@ -1211,7 +1211,6 @@ class BuildingViewSet(
     viewsets.GenericViewSet,
 ):
     serializer_class = BuildingSerializer
-    permission_classes = [IsAuthenticated]
     queryset = Building.objects.all().order_by("id")
 
     def update(self, request, *args, **kwargs):
@@ -1227,8 +1226,6 @@ class BuildingViewSet(
 
 class ApartmentViewSet(viewsets.ReadOnlyModelViewSet):
     serializer_class = ApartmentSerializer
-    permission_classes = [IsAuthenticated]
-
     def get_queryset(self):
         user = self.request.user
         queryset = Apartment.objects.select_related("building")
@@ -1302,8 +1299,6 @@ def _measurement_date_locked(apartment_ids, measurement_date) -> bool:
 
 class HeatingMeasurementInputViewSet(AdminWriteRequiredMixin, viewsets.ModelViewSet):
     serializer_class = HeatingMeasurementInputSerializer
-    permission_classes = [IsAuthenticated]
-
     def get_queryset(self):
         user = self.request.user
         queryset = HeatingMeasurementInput.objects.select_related("apartment", "apartment__building").all()
@@ -1779,8 +1774,6 @@ class HeatingMeasurementInputViewSet(AdminWriteRequiredMixin, viewsets.ModelView
 
 class HeatedWaterMeasurementInputViewSet(AdminWriteRequiredMixin, viewsets.ModelViewSet):
     serializer_class = HeatedWaterMeasurementInputSerializer
-    permission_classes = [IsAuthenticated]
-
     def get_queryset(self):
         user = self.request.user
         queryset = HeatedWaterMeasurementInput.objects.select_related("apartment", "apartment__building").all()
@@ -1865,8 +1858,6 @@ class HeatedWaterMeasurementInputViewSet(AdminWriteRequiredMixin, viewsets.Model
 
 class ExpenseItemViewSet(AdminWriteRequiredMixin, viewsets.ModelViewSet):
     serializer_class = ExpenseItemSerializer
-    permission_classes = [IsAuthenticated]
-
     def get_queryset(self):
         user = self.request.user
         queryset = ExpenseItem.objects.select_related("building").all()
@@ -1929,8 +1920,6 @@ class ExpenseItemViewSet(AdminWriteRequiredMixin, viewsets.ModelViewSet):
 
 class InvoiceViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, viewsets.GenericViewSet):
     serializer_class = InvoiceSerializer
-    permission_classes = [IsAuthenticated]
-
     def get_queryset(self):
         user = self.request.user
         queryset = Invoice.objects.select_related("apartment", "apartment__building").all()
@@ -2420,8 +2409,6 @@ class PaymentRecordViewSet(
     viewsets.GenericViewSet,
 ):
     serializer_class = PaymentRecordSerializer
-    permission_classes = [IsAuthenticated]
-
     def get_queryset(self):
         user = self.request.user
         queryset = PaymentRecord.objects.select_related("invoice", "apartment", "apartment__building").all()
@@ -2482,8 +2469,6 @@ class PaymentRecordViewSet(
 
 class VoteSessionViewSet(viewsets.ModelViewSet):
     serializer_class = VoteSessionSerializer
-    permission_classes = [IsAuthenticated]
-
     def get_queryset(self):
         user = self.request.user
         queryset = VoteSession.objects.select_related("building", "created_by_user").all()

@@ -92,6 +92,19 @@ Minimum set (suggested):
 - `DEFAULT_LOCALE` (set to `el` for MVP Greek-first output)
 - `SUPPORTED_LOCALES` (set to `el`; later `el,en`)
 
+Email (user invites and invoice/receipt dispatch):
+- `EMAIL_BACKEND` (optional override; defaults to console if `EMAIL_HOST` is empty, else SMTP)
+- `EMAIL_HOST`, `EMAIL_PORT`, `EMAIL_USE_TLS`
+- `EMAIL_HOST_USER`, `EMAIL_HOST_PASSWORD`
+- `DEFAULT_FROM_EMAIL`
+- `FRONTEND_LOGIN_URL` (link included in invite emails, e.g. `http://localhost:8081/login`)
+
+User onboarding (Django admin):
+1. Add user with username, email, role, and apartment links.
+2. A temporary password is emailed automatically on create.
+3. If delivery fails, use admin action **«Αποστολή πρόσκλησης (νέος προσωρινός κωδικός)»**.
+4. On first login the user must set a strong password before accessing the app.
+
 Redis cache config (Django):
 - Use `django-redis` with `CACHES["default"]` pointing at `REDIS_URL`.
 

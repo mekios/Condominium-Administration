@@ -22,6 +22,7 @@ export type Me = {
   email: string;
   role: string;
   preferred_language: string;
+  must_change_password: boolean;
 };
 
 export type Invoice = {
@@ -56,6 +57,14 @@ export class AppDataService {
       return of(this.meCache);
     }
     return this.http.get<Me>(`${API_BASE}/api/me/`).pipe(tap((me) => (this.meCache = me)));
+  }
+
+  setPassword(payload: {
+    current_password: string;
+    new_password: string;
+    new_password_confirm: string;
+  }): Observable<{ detail: string }> {
+    return this.http.post<{ detail: string }>(`${API_BASE}/api/me/set-password/`, payload);
   }
 
   getApartments(force = false): Observable<Apartment[]> {

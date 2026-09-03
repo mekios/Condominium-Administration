@@ -1,3 +1,4 @@
+from django.contrib.auth.password_validation import validate_password
 from rest_framework import serializers
 
 
@@ -9,3 +10,17 @@ class MeSerializer(serializers.Serializer):
     email = serializers.EmailField(allow_blank=True)
     role = serializers.CharField()
     preferred_language = serializers.CharField()
+    must_change_password = serializers.BooleanField()
+
+
+class SetPasswordSerializer(serializers.Serializer):
+    current_password = serializers.CharField()
+    new_password = serializers.CharField()
+    new_password_confirm = serializers.CharField()
+
+    def validate(self, attrs):
+        if attrs["new_password"] != attrs["new_password_confirm"]:
+            raise serializers.ValidationError(
+                {"new_password_confirm": "Οι κωδικοί δεν ταιριάζουν."}
+            )
+        return attrs

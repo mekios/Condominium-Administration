@@ -1,37 +1,39 @@
-import { Component, OnInit } from '@angular/core';
+import { Component } from '@angular/core';
 import { FormControl, FormGroup, ReactiveFormsModule, Validators } from '@angular/forms';
 import { Router } from '@angular/router';
 import { NgIf } from '@angular/common';
 
 import { AppDataService } from '../core/app-data.service';
-import { AuthService } from '../core/auth.service';
 
 @Component({
   standalone: true,
-  selector: 'app-login',
+  selector: 'app-set-password',
   imports: [ReactiveFormsModule, NgIf],
   template: `
     <main class="page">
       <section class="panel">
         <div class="brand">
           <img src="logo.png" alt="Μεταμόρφωσεως 5 — Χαλάνδρι, Αττική" class="brand-logo" />
-          <h1>Σύνδεση</h1>
-          <p class="subtitle">Ασφαλής πρόσβαση για διαχείριση πολυκατοικίας.</p>
+          <h1>Νέος κωδικός πρόσβασης</h1>
+          <p class="subtitle">Για λόγους ασφαλείας, ορίστε ισχυρό κωδικό πριν συνεχίσετε.</p>
         </div>
 
         <form [formGroup]="form" (ngSubmit)="submit()" class="form">
-          <label>Όνομα χρήστη</label>
-          <input type="text" formControlName="username" placeholder="admin_a1" />
+          <label>Τρέχων κωδικός (προσωρινός)</label>
+          <input type="password" formControlName="current_password" autocomplete="current-password" />
 
-          <label>Κωδικός πρόσβασης</label>
-          <input type="password" formControlName="password" placeholder="••••••••" />
+          <label>Νέος κωδικός</label>
+          <input type="password" formControlName="new_password" autocomplete="new-password" />
+
+          <label>Επιβεβαίωση νέου κωδικού</label>
+          <input type="password" formControlName="new_password_confirm" autocomplete="new-password" />
 
           <button type="submit" [disabled]="loading || form.invalid">
-            {{ loading ? 'Σύνδεση...' : 'Σύνδεση' }}
+            {{ loading ? 'Αποθήκευση...' : 'Αποθήκευση κωδικού' }}
           </button>
         </form>
 
-        <p *ngIf="error" class="error">Μη έγκυρα στοιχεία σύνδεσης. Παρακαλώ δοκιμάστε ξανά.</p>
+        <p *ngIf="error" class="error">{{ error }}</p>
       </section>
     </main>
   `,
@@ -92,54 +94,60 @@ import { AuthService } from '../core/auth.service';
       font-weight: 600;
     }
     button:disabled { opacity: 0.65; }
-    .error { color: #ff9fa5; margin-top: 0.85rem; font-size: 0.9rem; }
+    .error { color: #ff9fa5; margin-top: 0.85rem; font-size: 0.9rem; white-space: pre-wrap; }
   `,
 })
-export class LoginComponent implements OnInit {
+export class SetPasswordComponent {
   loading = false;
-  error = false;
+  error = '';
+
   form = new FormGroup({
-    username: new FormControl('', { nonNullable: true, validators: [Validators.required] }),
-    password: new FormControl('', { nonNullable: true, validators: [Validators.required] }),
+    current_password: new FormControl('', { nonNullable: true, validators: [Validators.required] }),
+    new_password: new FormControl('', {
+      nonNullable: true,
+      validators: [Validators.required, Validators.minLength(8)],
+    }),
+    new_password_confirm: new FormControl('', { nonNullable: true, validators: [Validators.required] }),
   });
 
   constructor(
-    private readonly auth: AuthService,
     private readonly data: AppDataService,
     private readonly router: Router,
   ) {}
 
-  ngOnInit(): void {
-    this.auth.ensureSession().subscribe((valid) => {
-      if (valid) {
-        void this.redirectAfterAuth();
-      }
-    });
-  }
-
   submit(): void {
-    this.error = false;
+    this.error = '';
     if (this.form.invalid) return;
+
+    const { new_password, new_password_confirm } = this.form.getRawValue();
+    if (new_password !== new_password_confirm) {
+      this.error = 'Οι κωδικοί δεν ταιριάζουν.';
+      return;
+    }
+
     this.loading = true;
-    this.auth.login(this.form.value.username!, this.form.value.password!).subscribe({
-      next: () => this.redirectAfterAuth(),
-      error: () => {
+    this.data.setPassword(this.form.getRawValue()).subscribe({
+      next: () => {
+        this.data.getMe(true).subscribe(() => {
+          void this.router.navigateByUrl('/app/dashboard');
+        });
+      },
+      error: (err) => {
         this.loading = false;
-        this.error = true;
+        const body = err?.error;
+        if (typeof body?.detail === 'string') {
+          this.error = body.detail;
+          return;
+        }
+        const messages = [
+          ...(body?.current_password ?? []),
+          ...(body?.new_password ?? []),
+          ...(body?.new_password_confirm ?? []),
+        ];
+        this.error = messages.length ? messages.join('\n') : 'Αποτυχία αποθήκευσης κωδικού.';
       },
       complete: () => {
         this.loading = false;
-      },
-    });
-  }
-
-  private redirectAfterAuth(): void {
-    this.data.getMe(true).subscribe({
-      next: (me) => {
-        void this.router.navigateByUrl(me.must_change_password ? '/app/set-password' : '/app/dashboard');
-      },
-      error: () => {
-        void this.router.navigateByUrl('/app/dashboard');
       },
     });
   }

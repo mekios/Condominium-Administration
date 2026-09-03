@@ -1,5 +1,5 @@
 import { Routes } from '@angular/router';
-import { adminOnlyGuard, authGuard } from './core/auth.guard';
+import { adminOnlyGuard, authGuard, passwordChangeGuard, setPasswordPageGuard } from './core/auth.guard';
 
 export const routes: Routes = [
   {
@@ -9,8 +9,14 @@ export const routes: Routes = [
   {
     path: 'app',
     canActivate: [authGuard],
+    canActivateChild: [passwordChangeGuard],
     loadComponent: () => import('./features/admin-shell.component').then((m) => m.AdminShellComponent),
     children: [
+      {
+        path: 'set-password',
+        canActivate: [setPasswordPageGuard],
+        loadComponent: () => import('./features/set-password.component').then((m) => m.SetPasswordComponent),
+      },
       {
         path: 'invoices',
         loadComponent: () => import('./features/invoices.component').then((m) => m.InvoicesComponent),
