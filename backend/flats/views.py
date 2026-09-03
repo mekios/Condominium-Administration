@@ -1035,6 +1035,7 @@ def _calculate_invoice_rows(month: str):
     }
     owners_only_categories = {
         ExpenseItem.Category.OWNERS_ONLY,
+        ExpenseItem.Category.FUND_INCREASE,
     }
 
     expenses_by_building = {}
@@ -1072,8 +1073,6 @@ def _calculate_invoice_rows(month: str):
             }
 
         for expense in building_expenses:
-            if expense.expense_category == ExpenseItem.Category.FUND_INCREASE:
-                continue
             if expense.expense_category == ExpenseItem.Category.GAS_HW_CONSUMPTION:
                 return None, {
                     "detail": (

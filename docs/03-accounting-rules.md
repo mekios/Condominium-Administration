@@ -131,6 +131,7 @@ Expense categories (initial list):
   - `annual_servicing`
 - owners only:
   - `owners_only` — Expenses paid only by owners, not tenants (structural damages, core equipment fixes, facade changes, new machinery). Allocated by ownership permille. Shown as separate line on invoice so owners know not to pass to tenants.
+  - `fund_increase` — Owner contribution to the building reserve. Increases `building.fund_balance` when recorded, and is allocated to apartments by ownership permille into `owners_only_total` on the invoice (not passed to tenants).
 
 Default allocation rule:
 1. Compute each apartment’s ownership fraction:

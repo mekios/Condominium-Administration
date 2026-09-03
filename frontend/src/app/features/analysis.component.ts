@@ -18,7 +18,7 @@ import { EuroPipe } from '../core/euro.pipe';
 import { MonthFormatPipe } from '../core/month-format.pipe';
 import { MonthPickerComponent } from '../core/month-picker/month-picker.component';
 import { currentMonth } from '../core/month.utils';
-import { getDisplayLabel, isFundIncreaseCategory } from '../core/expense-categories';
+import { getDisplayLabel } from '../core/expense-categories';
 
 type ExpenseItem = {
   id: number;
@@ -358,7 +358,6 @@ export class AnalysisComponent implements OnInit, OnDestroy {
       a.apartment_unit_code.localeCompare(b.apartment_unit_code, 'el'),
     );
     const totalExpenses = expenses
-      .filter((item) => !isFundIncreaseCategory(item.expense_category))
       .reduce((sum, item) => sum + Number(item.amount || 0), 0);
     const totalInvoices = sorted.reduce((sum, inv) => sum + Number(inv.invoice_total || 0), 0);
     const analysisRows = sorted.map((inv) => {
@@ -388,7 +387,6 @@ export class AnalysisComponent implements OnInit, OnDestroy {
       a.apartment_unit_code.localeCompare(b.apartment_unit_code, 'el'),
     );
     const totalExpenses = expenses
-      .filter((item) => !isFundIncreaseCategory(item.expense_category))
       .reduce((sum, item) => sum + Number(item.amount || 0), 0);
     const totalInvoices = sorted.reduce((sum, item) => sum + Number(item.invoice_total || 0), 0);
     const analysisRows = sorted.map((item) => {

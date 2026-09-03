@@ -1620,7 +1620,7 @@ class FundIncreaseExpenseTests(APITestCase):
         self.building.refresh_from_db()
         self.assertEqual(self.building.fund_balance, Decimal("1000.00"))
 
-    def test_fund_increase_excluded_from_invoice_allocation(self):
+    def test_fund_increase_allocated_to_owners_by_permille(self):
         month = "2026-07"
         ExpenseItem.objects.create(
             building=self.building,
@@ -1632,10 +1632,17 @@ class FundIncreaseExpenseTests(APITestCase):
         self.building.fund_balance = Decimal("1300.00")
         self.building.save(update_fields=["fund_balance", "updated_at"])
 
-        Apartment.objects.create(
+        a1 = Apartment.objects.create(
             building=self.building,
             unit_code="A1",
-            ownership_permille=Decimal("1000"),
+            ownership_permille=Decimal("400"),
+            heating_e_factor=Decimal("0.10"),
+            heating_f_factor=Decimal("0.20"),
+        )
+        a2 = Apartment.objects.create(
+            building=self.building,
+            unit_code="A2",
+            ownership_permille=Decimal("600"),
             heating_e_factor=Decimal("0.10"),
             heating_f_factor=Decimal("0.20"),
         )
@@ -1645,5 +1652,7 @@ class FundIncreaseExpenseTests(APITestCase):
         result, error = _calculate_invoice_rows(month)
         self.assertIsNone(error)
         _, rows, breakdown = result
-        self.assertTrue(all(sum(row.values()) == Decimal("0") for row in rows.values()))
-        self.assertTrue(all(len(lines) == 0 for lines in breakdown.values()))
+        self.assertEqual(rows[a1.id]["owners_only_total"], Decimal("120.00"))
+        self.assertEqual(rows[a2.id]["owners_only_total"], Decimal("180.00"))
+        self.assertEqual(len(breakdown[a1.id]), 1)
+        self.assertEqual(breakdown[a1.id][0]["bucket_key"], "owners_only_total")

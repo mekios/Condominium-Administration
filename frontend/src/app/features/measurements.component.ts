@@ -119,24 +119,42 @@ type EntryFormResponse = BuildingMeasurementFields & {
                   <td class="apt-col">{{ row.apartment_label }}</td>
                   <td class="muted">{{ formatOneDecimal(row.previous_heating_reading) }}</td>
                   <td>
-                    <input
-                      type="number"
-                      step="0.1"
-                      placeholder="—"
-                      [ngModel]="heatingCurrentByApt[row.apartment_id]"
-                      (ngModelChange)="setHeatingCurrent(row.apartment_id, $event)"
-                    />
+                    <div class="reading-cell">
+                      <button
+                        type="button"
+                        class="btn-same"
+                        title="Ίδια με προηγούμενη"
+                        aria-label="Ίδια με προηγούμενη ένδειξη θέρμανσης"
+                        (click)="setHeatingCurrent(row.apartment_id, normalizeReading(row.previous_heating_reading))"
+                      >⇒</button>
+                      <input
+                        type="number"
+                        step="0.1"
+                        placeholder="—"
+                        [ngModel]="heatingCurrentByApt[row.apartment_id]"
+                        (ngModelChange)="setHeatingCurrent(row.apartment_id, $event)"
+                      />
+                    </div>
                   </td>
                   <td class="units">{{ calculateDiff(heatingCurrentByApt[row.apartment_id], row.previous_heating_reading) }}</td>
                   <td class="muted">{{ formatOneDecimal(row.previous_heated_water_reading) }}</td>
                   <td>
-                    <input
-                      type="number"
-                      step="0.1"
-                      placeholder="—"
-                      [ngModel]="heatedWaterCurrentByApt[row.apartment_id]"
-                      (ngModelChange)="setHeatedWaterCurrent(row.apartment_id, $event)"
-                    />
+                    <div class="reading-cell">
+                      <button
+                        type="button"
+                        class="btn-same"
+                        title="Ίδια με προηγούμενη"
+                        aria-label="Ίδια με προηγούμενη ένδειξη ζεστού νερού"
+                        (click)="setHeatedWaterCurrent(row.apartment_id, normalizeReading(row.previous_heated_water_reading))"
+                      >⇒</button>
+                      <input
+                        type="number"
+                        step="0.1"
+                        placeholder="—"
+                        [ngModel]="heatedWaterCurrentByApt[row.apartment_id]"
+                        (ngModelChange)="setHeatedWaterCurrent(row.apartment_id, $event)"
+                      />
+                    </div>
                   </td>
                   <td class="units">{{ calculateDiff(heatedWaterCurrentByApt[row.apartment_id], row.previous_heated_water_reading) }}</td>
                 </tr>
@@ -144,12 +162,21 @@ type EntryFormResponse = BuildingMeasurementFields & {
                   <td class="apt-col"><strong>Λέβητας ζεστού νερού (κτίριο)</strong></td>
                   <td class="muted">{{ formatOneDecimal(buildingPreviousReading) }}</td>
                   <td>
-                    <input
-                      type="number"
-                      step="0.1"
-                      placeholder="—"
-                      [(ngModel)]="buildingCurrentReading"
-                    />
+                    <div class="reading-cell">
+                      <button
+                        type="button"
+                        class="btn-same"
+                        title="Ίδια με προηγούμενη"
+                        aria-label="Ίδια με προηγούμενη ένδειξη λέβητα"
+                        (click)="buildingCurrentReading = normalizeReading(buildingPreviousReading)"
+                      >⇒</button>
+                      <input
+                        type="number"
+                        step="0.1"
+                        placeholder="—"
+                        [(ngModel)]="buildingCurrentReading"
+                      />
+                    </div>
                   </td>
                   <td class="units">{{ calculateDiff(buildingCurrentReading, buildingPreviousReading) }}</td>
                   <td colspan="3"></td>
@@ -269,24 +296,42 @@ type EntryFormResponse = BuildingMeasurementFields & {
                                 <td class="muted">{{ formatOneDecimal(row.previous_heating_reading) }}</td>
                                 <td *ngIf="!editingDetail">{{ formatOneDecimal(row.heating_current_reading) }}</td>
                                 <td *ngIf="editingDetail">
-                                  <input
-                                    type="number"
-                                    step="0.1"
-                                    [ngModel]="editHeatingByApt[row.apartment_id]"
-                                    (ngModelChange)="editHeatingByApt[row.apartment_id] = $event"
-                                  />
+                                  <div class="reading-cell">
+                                    <button
+                                      type="button"
+                                      class="btn-same"
+                                      title="Ίδια με προηγούμενη"
+                                      aria-label="Ίδια με προηγούμενη ένδειξη θέρμανσης"
+                                      (click)="editHeatingByApt[row.apartment_id] = normalizeReading(row.previous_heating_reading)"
+                                    >⇒</button>
+                                    <input
+                                      type="number"
+                                      step="0.1"
+                                      [ngModel]="editHeatingByApt[row.apartment_id]"
+                                      (ngModelChange)="editHeatingByApt[row.apartment_id] = $event"
+                                    />
+                                  </div>
                                 </td>
                                 <td class="units" *ngIf="!editingDetail">{{ calculateDiff(row.heating_current_reading, row.previous_heating_reading) }}</td>
                                 <td class="units" *ngIf="editingDetail">{{ calculateDiff(editHeatingByApt[row.apartment_id], row.previous_heating_reading) }}</td>
                                 <td class="muted">{{ formatOneDecimal(row.previous_heated_water_reading) }}</td>
                                 <td *ngIf="!editingDetail">{{ formatOneDecimal(row.heated_water_current_reading) }}</td>
                                 <td *ngIf="editingDetail">
-                                  <input
-                                    type="number"
-                                    step="0.1"
-                                    [ngModel]="editWaterByApt[row.apartment_id]"
-                                    (ngModelChange)="editWaterByApt[row.apartment_id] = $event"
-                                  />
+                                  <div class="reading-cell">
+                                    <button
+                                      type="button"
+                                      class="btn-same"
+                                      title="Ίδια με προηγούμενη"
+                                      aria-label="Ίδια με προηγούμενη ένδειξη ζεστού νερού"
+                                      (click)="editWaterByApt[row.apartment_id] = normalizeReading(row.previous_heated_water_reading)"
+                                    >⇒</button>
+                                    <input
+                                      type="number"
+                                      step="0.1"
+                                      [ngModel]="editWaterByApt[row.apartment_id]"
+                                      (ngModelChange)="editWaterByApt[row.apartment_id] = $event"
+                                    />
+                                  </div>
                                 </td>
                                 <td class="units" *ngIf="!editingDetail">{{ calculateDiff(row.heated_water_current_reading, row.previous_heated_water_reading) }}</td>
                                 <td class="units" *ngIf="editingDetail">{{ calculateDiff(editWaterByApt[row.apartment_id], row.previous_heated_water_reading) }}</td>
@@ -296,7 +341,16 @@ type EntryFormResponse = BuildingMeasurementFields & {
                                 <td class="muted">{{ formatOneDecimal(buildingPreviousReading) }}</td>
                                 <td *ngIf="!editingDetail">{{ formatOneDecimal(buildingCurrentReading) }}</td>
                                 <td *ngIf="editingDetail">
-                                  <input type="number" step="0.1" [(ngModel)]="buildingCurrentReading" />
+                                  <div class="reading-cell">
+                                    <button
+                                      type="button"
+                                      class="btn-same"
+                                      title="Ίδια με προηγούμενη"
+                                      aria-label="Ίδια με προηγούμενη ένδειξη λέβητα"
+                                      (click)="buildingCurrentReading = normalizeReading(buildingPreviousReading)"
+                                    >⇒</button>
+                                    <input type="number" step="0.1" [(ngModel)]="buildingCurrentReading" />
+                                  </div>
                                 </td>
                                 <td class="units">{{ calculateDiff(buildingCurrentReading, buildingPreviousReading) }}</td>
                                 <td colspan="3"></td>
@@ -461,6 +515,35 @@ type EntryFormResponse = BuildingMeasurementFields & {
       color: #ffd38a;
       border: 1px solid #8b6a37;
       background: rgba(120, 88, 38, 0.28);
+    }
+    .reading-cell {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.28rem;
+      max-width: 150px;
+    }
+    .reading-cell input:not([matInput]) {
+      flex: 1 1 auto;
+      min-width: 0;
+      max-width: none;
+    }
+    .btn-same {
+      flex: 0 0 auto;
+      border: 1px solid #3a507f;
+      border-radius: 7px;
+      background: #152448;
+      color: #9eb4e0;
+      font-size: 0.85rem;
+      font-weight: 700;
+      line-height: 1;
+      padding: 0.32rem 0.4rem;
+      cursor: pointer;
+      white-space: nowrap;
+    }
+    .btn-same:hover {
+      color: #e8f0ff;
+      border-color: #6d8dce;
+      background: #1a2d58;
     }
     input:not([matInput]) {
       border: 1px solid #31416c;
@@ -835,6 +918,13 @@ export class MeasurementsComponent implements OnInit {
     const numeric = Number(value);
     if (!Number.isFinite(numeric)) return '-';
     return numeric.toFixed(1);
+  }
+
+  normalizeReading(value: string | null | undefined): string {
+    if (!value?.toString().trim()) return '0';
+    const numeric = Number(value);
+    if (!Number.isFinite(numeric)) return '0';
+    return numeric.toString();
   }
 
   deleteMeasurementsByDate(measurementDate: string): void {
