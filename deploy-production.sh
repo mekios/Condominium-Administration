@@ -16,10 +16,6 @@ fi
 
 COMPOSE="docker compose -f docker-compose.prod.yml"
 
-if [ ! -f .env ]; then
-  echo "ERROR: missing .env — cp env/metamorfoseos5.site/docker.env.example .env"
-  exit 1
-fi
 
 git pull origin main
 
