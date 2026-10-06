@@ -1,22 +1,14 @@
-services:
-  caddy:
-    image: caddy:2-alpine
-    restart: unless-stopped
-    ports:
-      - "80:80"
-      - "443:443"
-      - "443:443/udp"
-    volumes:
-      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
-      - caddy_data:/data
-      - caddy_config:/config
-    depends_on:
-      - backend
-      - frontend
+# Production stack. Host nginx terminates TLS and proxies:
+#   https://metamorfoseos5.site/         -> 127.0.0.1:3000
+#   https://metamorfoseos5.site/api/     -> 127.0.0.1:8000
+#   https://metamorfoseos5.site/admin/   -> 127.0.0.1:8000
+#   https://metamorfoseos5.site/static/  -> 127.0.0.1:8000
+# Deploy: ./deploy-production.sh
 
+services:
   postgres:
     image: postgres:16-alpine
-    restart: unless-stopped
+    restart: always
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-flatsadmin}
       POSTGRES_USER: ${POSTGRES_USER:-flatsadmin}
@@ -27,8 +19,10 @@ services:
 
   backend:
     build: ./backend
-    restart: unless-stopped
+    restart: always
     env_file: .env
+    ports:
+      - "127.0.0.1:8000:8000"
     environment:
       RUN_DJANGO_STARTUP: "1"
       DJANGO_DEBUG: "0"
@@ -43,9 +37,9 @@ services:
 
   frontend:
     build: ./frontend
-    restart: unless-stopped
+    restart: always
+    ports:
+      - "127.0.0.1:3000:80"
 
 volumes:
   postgres_data:
-  caddy_data:
-  caddy_config:
