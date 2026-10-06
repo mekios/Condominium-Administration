@@ -92,11 +92,11 @@ Minimum set (suggested):
 - `DEFAULT_LOCALE` (set to `el` for MVP Greek-first output)
 - `SUPPORTED_LOCALES` (set to `el`; later `el,en`)
 
-Email (user invites and invoice/receipt dispatch):
-- `EMAIL_BACKEND` (optional override; defaults to console if `EMAIL_HOST` is empty, else SMTP)
-- `EMAIL_HOST`, `EMAIL_PORT`, `EMAIL_USE_TLS`
-- `EMAIL_HOST_USER`, `EMAIL_HOST_PASSWORD`
-- `DEFAULT_FROM_EMAIL`
+Email (user invites, password reset, and invoice/receipt dispatch) is sent through Brevo SMTP:
+- `EMAIL_HOST` defaults to `smtp-relay.brevo.com`, `EMAIL_PORT` `587`, `EMAIL_USE_TLS` `1`
+- `EMAIL_HOST_USER` (Brevo account email) and `EMAIL_HOST_PASSWORD` (Brevo SMTP key)
+- `DEFAULT_FROM_EMAIL` (must be a sender verified in Brevo)
+- `EMAIL_BACKEND` (optional override; defaults to console when the Brevo login or SMTP key is empty, otherwise Django SMTP)
 - `FRONTEND_LOGIN_URL` (link included in invite emails, e.g. `http://localhost:8081/login`)
 
 User onboarding (Django admin):

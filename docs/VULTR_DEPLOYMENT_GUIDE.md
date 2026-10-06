@@ -129,7 +129,15 @@ Public URLs:
 
 ## 6. Email
 
-Invites and password reset use SMTP. Fill `EMAIL_HOST`, `EMAIL_HOST_USER`, `EMAIL_HOST_PASSWORD`, and `DEFAULT_FROM_EMAIL` in `.env`, then run `./deploy-production.sh` again. Vultr blocks outbound port 25, so use port 587. Add the provider's SPF and DKIM records for `metamorfoseos5.site`.
+Invites, password reset, invoices, and receipts are sent through Brevo’s SMTP relay (`smtp-relay.brevo.com`, port 587). Vultr blocks outbound port 25.
+
+In `.env` set:
+
+- `EMAIL_HOST_USER` — the email you use to log in to Brevo
+- `EMAIL_HOST_PASSWORD` — the SMTP key from Brevo → SMTP & API (not the account password)
+- `DEFAULT_FROM_EMAIL` — a sender verified in Brevo, for example `noreply@metamorfoseos5.site`
+
+Authenticate `metamorfoseos5.site` in Brevo and publish the DNS records it shows (Brevo code, DKIM, DMARC, and SPF). Then run `./deploy-production.sh` again. Without the SMTP login and key, Django prints mail to the container log instead of sending it.
 
 ## 7. Updates
 

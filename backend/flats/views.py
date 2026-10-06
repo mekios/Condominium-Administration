@@ -3,6 +3,7 @@ from decimal import Decimal, ROUND_HALF_UP
 from datetime import date
 from io import BytesIO
 
+from django.conf import settings
 from django.core.mail import EmailMessage
 from django.db import transaction
 from django.http import HttpResponse
@@ -660,7 +661,12 @@ def _send_receipt_email(invoice: Invoice, payment: PaymentRecord, receipt_filena
         status=NotificationDispatch.Status.QUEUED,
     )
     try:
-        message = EmailMessage(subject=subject, body=body, to=recipient_emails)
+        message = EmailMessage(
+            subject=subject,
+            body=body,
+            from_email=settings.DEFAULT_FROM_EMAIL,
+            to=recipient_emails,
+        )
         message.attach(receipt_filename, receipt_pdf, "application/pdf")
         message.send(fail_silently=False)
         dispatch.status = NotificationDispatch.Status.SENT
@@ -714,7 +720,12 @@ def _send_invoice_email(invoice: Invoice, invoice_filename: str, invoice_pdf: by
         status=NotificationDispatch.Status.QUEUED,
     )
     try:
-        message = EmailMessage(subject=subject, body=body, to=recipient_emails)
+        message = EmailMessage(
+            subject=subject,
+            body=body,
+            from_email=settings.DEFAULT_FROM_EMAIL,
+            to=recipient_emails,
+        )
         message.attach(invoice_filename, invoice_pdf, "application/pdf")
         message.send(fail_silently=False)
         dispatch.status = NotificationDispatch.Status.SENT
