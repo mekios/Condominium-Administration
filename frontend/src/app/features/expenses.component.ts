@@ -3,7 +3,7 @@ import { MonthFormatPipe } from '../core/month-format.pipe';
 import { EuroPipe } from '../core/euro.pipe';
 import { NgFor, NgIf } from '@angular/common';
 import { HttpClient } from '@angular/common/http';
-import { Router } from '@angular/router';
+import { ActivatedRoute, Router } from '@angular/router';
 
 import { AdminModeService } from '../core/admin-mode.service';
 import { DialogService } from '../core/dialog/dialog.service';
@@ -17,7 +17,7 @@ import {
   getIconPath,
 } from '../core/expense-categories';
 import { MonthPickerComponent } from '../core/month-picker/month-picker.component';
-import { currentMonth } from '../core/month.utils';
+import { currentMonth, parseMonth } from '../core/month.utils';
 
 type ExpenseItem = {
   id: number;
@@ -250,6 +250,7 @@ export class ExpensesComponent implements OnInit {
 
   constructor(
     private readonly http: HttpClient,
+    private readonly route: ActivatedRoute,
     private readonly router: Router,
     private readonly adminMode: AdminModeService,
     private readonly dialog: DialogService,
@@ -258,6 +259,10 @@ export class ExpensesComponent implements OnInit {
   ngOnInit(): void {
     this.adminMode.adminModeActive$.subscribe(() => this.refreshWriteEnabled());
     this.loadMe();
+    const monthFromQuery = this.route.snapshot.queryParamMap.get('month');
+    if (monthFromQuery && parseMonth(monthFromQuery)) {
+      this.selectedMonth = monthFromQuery;
+    }
     this.loadExpenses();
   }
 
@@ -269,6 +274,11 @@ export class ExpensesComponent implements OnInit {
     if (!month || month === this.selectedMonth) return;
     this.selectedMonth = month;
     this.message = '';
+    void this.router.navigate([], {
+      relativeTo: this.route,
+      queryParams: { month },
+      replaceUrl: true,
+    });
     this.loadExpenses();
   }
 

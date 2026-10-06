@@ -7,16 +7,24 @@ export const routes: Routes = [
     loadComponent: () => import('./features/login.component').then((m) => m.LoginComponent),
   },
   {
+    path: 'forgot-password',
+    loadComponent: () => import('./features/forgot-password.component').then((m) => m.ForgotPasswordComponent),
+  },
+  {
+    path: 'reset-password',
+    loadComponent: () => import('./features/reset-password.component').then((m) => m.ResetPasswordComponent),
+  },
+  {
+    path: 'set-password',
+    canActivate: [authGuard, setPasswordPageGuard],
+    loadComponent: () => import('./features/set-password.component').then((m) => m.SetPasswordComponent),
+  },
+  {
     path: 'app',
     canActivate: [authGuard],
     canActivateChild: [passwordChangeGuard],
     loadComponent: () => import('./features/admin-shell.component').then((m) => m.AdminShellComponent),
     children: [
-      {
-        path: 'set-password',
-        canActivate: [setPasswordPageGuard],
-        loadComponent: () => import('./features/set-password.component').then((m) => m.SetPasswordComponent),
-      },
       {
         path: 'invoices',
         loadComponent: () => import('./features/invoices.component').then((m) => m.InvoicesComponent),
@@ -66,6 +74,7 @@ export const routes: Routes = [
       { path: '', pathMatch: 'full', redirectTo: 'dashboard' },
     ],
   },
+  { path: 'app/set-password', pathMatch: 'full', redirectTo: 'set-password' },
   { path: 'dashboard', pathMatch: 'full', redirectTo: 'app/dashboard' },
   { path: '', pathMatch: 'full', redirectTo: 'app/dashboard' },
 ];

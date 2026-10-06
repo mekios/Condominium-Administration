@@ -5,7 +5,7 @@ import { HttpClient } from '@angular/common/http';
 import { ActivatedRoute, RouterLink } from '@angular/router';
 import { finalize } from 'rxjs';
 
-import { API_BASE, DEFAULT_BUILDING_ID } from '../core/api.constants';
+import { API_BASE } from '../core/api.constants';
 import { AdminModeService } from '../core/admin-mode.service';
 import { Apartment, AppDataService, Me } from '../core/app-data.service';
 
@@ -302,12 +302,10 @@ export class VotingDetailComponent implements OnInit {
         this.refreshWriteEnabled();
       },
     });
-    this.data.getApartments().subscribe({
+    this.data.getLinkedApartments().subscribe({
       next: (rows) => {
         this.apartments = rows;
-        if (this.session) {
-          this.eligibleApartments = this.apartments.filter((a) => a.building === DEFAULT_BUILDING_ID);
-        }
+        this.refreshEligibleApartments();
       },
     });
     this.http
@@ -316,12 +314,20 @@ export class VotingDetailComponent implements OnInit {
       .subscribe({
         next: (session) => {
           this.session = session;
-          this.eligibleApartments = this.apartments.filter((a) => a.building === DEFAULT_BUILDING_ID);
+          this.refreshEligibleApartments();
           this.loadVotes();
           this.loadResults();
         },
         error: (err) => (this.message = err?.error?.detail || 'Αποτυχία φόρτωσης ψηφοφορίας.'),
       });
+  }
+
+  private refreshEligibleApartments(): void {
+    if (!this.session) {
+      this.eligibleApartments = [];
+      return;
+    }
+    this.eligibleApartments = this.apartments.filter((apartment) => apartment.building === this.session!.building);
   }
 
   loadVotes(): void {

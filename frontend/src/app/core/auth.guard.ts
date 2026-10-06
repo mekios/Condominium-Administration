@@ -15,16 +15,12 @@ export const authGuard: CanActivateFn = () => {
   );
 };
 
-export const passwordChangeGuard: CanActivateFn = (route) => {
-  if (route.routeConfig?.path === 'set-password') {
-    return true;
-  }
-
+export const passwordChangeGuard: CanActivateFn = () => {
   const data = inject(AppDataService);
   const router = inject(Router);
 
   return data.getMe().pipe(
-    map((me) => (me.must_change_password ? router.parseUrl('/app/set-password') : true)),
+    map((me) => (me.must_change_password ? router.parseUrl('/set-password') : true)),
     catchError(() => of(router.parseUrl('/login'))),
   );
 };

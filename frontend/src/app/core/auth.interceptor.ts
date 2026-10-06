@@ -11,8 +11,8 @@ function withAuthHeader(req: HttpRequest<unknown>, token: string): HttpRequest<u
   return req.clone({ setHeaders: { Authorization: `Bearer ${token}` } });
 }
 
-function isTokenRequest(req: HttpRequest<unknown>): boolean {
-  return req.url.includes('/api/token/');
+function isPublicAuthRequest(req: HttpRequest<unknown>): boolean {
+  return req.url.includes('/api/token/') || req.url.includes('/api/auth/');
 }
 
 function endSession(): void {
@@ -35,7 +35,7 @@ function retryWithRefresh(req: HttpRequest<unknown>, next: HttpHandlerFn, auth: 
 export const authInterceptor: HttpInterceptorFn = (req, next) => {
   const auth = inject(AuthService);
 
-  if (isTokenRequest(req)) {
+  if (isPublicAuthRequest(req)) {
     return next(req);
   }
 

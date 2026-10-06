@@ -1,98 +1,41 @@
 import { Component, OnInit } from '@angular/core';
 import { FormControl, FormGroup, ReactiveFormsModule, Validators } from '@angular/forms';
-import { Router } from '@angular/router';
+import { Router, RouterLink } from '@angular/router';
 import { NgIf } from '@angular/common';
 
 import { AppDataService } from '../core/app-data.service';
 import { AuthService } from '../core/auth.service';
+import { AuthShellComponent } from '../core/auth-shell.component';
+import { PasswordFieldComponent } from '../core/password-field.component';
 
 @Component({
   standalone: true,
   selector: 'app-login',
-  imports: [ReactiveFormsModule, NgIf],
+  imports: [ReactiveFormsModule, NgIf, RouterLink, AuthShellComponent, PasswordFieldComponent],
   template: `
-    <main class="page">
-      <section class="panel">
-        <div class="brand">
-          <img src="logo.png" alt="Μεταμόρφωσεως 5 — Χαλάνδρι, Αττική" class="brand-logo" />
-          <h1>Σύνδεση</h1>
-          <p class="subtitle">Ασφαλής πρόσβαση για διαχείριση πολυκατοικίας.</p>
-        </div>
+    <app-auth-shell title="Σύνδεση" subtitle="Ασφαλής πρόσβαση για διαχείριση πολυκατοικίας.">
+      <form [formGroup]="form" (ngSubmit)="submit()" class="form">
+        <label>Όνομα χρήστη</label>
+        <input type="text" formControlName="username" placeholder="admin_a1" autocomplete="username" />
 
-        <form [formGroup]="form" (ngSubmit)="submit()" class="form">
-          <label>Όνομα χρήστη</label>
-          <input type="text" formControlName="username" placeholder="admin_a1" />
+        <label>Κωδικός πρόσβασης</label>
+        <app-password-field
+          formControlName="password"
+          placeholder="••••••••"
+          autocomplete="current-password"
+        />
 
-          <label>Κωδικός πρόσβασης</label>
-          <input type="password" formControlName="password" placeholder="••••••••" />
+        <button class="primary" type="submit" [disabled]="loading || form.invalid">
+          {{ loading ? 'Σύνδεση...' : 'Σύνδεση' }}
+        </button>
+      </form>
 
-          <button type="submit" [disabled]="loading || form.invalid">
-            {{ loading ? 'Σύνδεση...' : 'Σύνδεση' }}
-          </button>
-        </form>
+      <p *ngIf="error" class="error">Μη έγκυρα στοιχεία σύνδεσης. Παρακαλώ δοκιμάστε ξανά.</p>
 
-        <p *ngIf="error" class="error">Μη έγκυρα στοιχεία σύνδεσης. Παρακαλώ δοκιμάστε ξανά.</p>
-      </section>
-    </main>
-  `,
-  styles: `
-    .page {
-      min-height: 100vh;
-      display: grid;
-      place-items: center;
-      padding: 1rem;
-      background: radial-gradient(circle at 10% 10%, #1f2a44, #0b1020 45%);
-    }
-
-    .panel {
-      width: min(100%, 460px);
-      padding: 1.5rem;
-      border-radius: 18px;
-      background: #11182b;
-      border: 1px solid #27314f;
-      box-shadow: 0 20px 40px rgba(0, 0, 0, 0.35);
-    }
-
-    .brand { margin-bottom: 1.1rem; text-align: center; }
-    .brand-logo {
-      display: block;
-      width: 100%;
-      max-width: 300px;
-      height: auto;
-      margin: 0 auto 0.9rem;
-      padding: 0.75rem 0.95rem;
-      border-radius: 16px;
-      background: rgba(245, 248, 255, 0.92);
-      border: 1px solid rgba(255, 255, 255, 0.5);
-      box-shadow: 0 12px 26px rgba(0, 0, 0, 0.28);
-      backdrop-filter: blur(6px);
-    }
-    h1 { margin: 0.15rem 0 0.35rem; color: #f8fbff; font-size: 1.7rem; }
-    .subtitle { margin: 0; color: #9cb0df; font-size: 0.92rem; }
-
-    .form { display: flex; flex-direction: column; gap: 0.55rem; }
-    label { color: #b8c8ed; font-size: 0.86rem; }
-    input {
-      border: 1px solid #2e3a5d;
-      border-radius: 10px;
-      background: #0c1223;
-      color: #fff;
-      padding: 0.72rem 0.75rem;
-      outline: none;
-    }
-    input:focus { border-color: #4f78ff; box-shadow: 0 0 0 3px rgba(79, 120, 255, 0.2); }
-
-    button {
-      margin-top: 0.6rem;
-      border: 0;
-      border-radius: 10px;
-      background: linear-gradient(135deg, #4f78ff, #6e64ff);
-      color: #fff;
-      padding: 0.78rem;
-      font-weight: 600;
-    }
-    button:disabled { opacity: 0.65; }
-    .error { color: #ff9fa5; margin-top: 0.85rem; font-size: 0.9rem; }
+      <div class="auth-links">
+        <a routerLink="/forgot-password">Ξεχάσατε τον κωδικό;</a>
+      </div>
+    </app-auth-shell>
   `,
 })
 export class LoginComponent implements OnInit {
@@ -136,7 +79,7 @@ export class LoginComponent implements OnInit {
   private redirectAfterAuth(): void {
     this.data.getMe(true).subscribe({
       next: (me) => {
-        void this.router.navigateByUrl(me.must_change_password ? '/app/set-password' : '/app/dashboard');
+        void this.router.navigateByUrl(me.must_change_password ? '/set-password' : '/app/dashboard');
       },
       error: () => {
         void this.router.navigateByUrl('/app/dashboard');

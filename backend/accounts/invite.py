@@ -1,8 +1,7 @@
 import secrets
 import string
 
-from django.conf import settings
-from django.core.mail import EmailMessage
+from .emailing import send_branded_email
 
 
 def generate_temporary_password(length: int = 12) -> str:
@@ -12,10 +11,13 @@ def generate_temporary_password(length: int = 12) -> str:
 
 
 def send_user_invite(user, *, temporary_password: str) -> None:
+    from django.conf import settings
+
     login_url = settings.FRONTEND_LOGIN_URL
     subject = "Πρόσκληση σύνδεσης — Διαχείριση πολυκατοικίας"
-    body = (
-        f"Γεια σας{f' {user.first_name}' if user.first_name else ''},\n\n"
+    first_name = (user.first_name or "").strip()
+    text_body = (
+        f"Γεια σας{f' {first_name}' if first_name else ''},\n\n"
         "Δημιουργήθηκε λογαριασμός για την εφαρμογή διαχείρισης πολυκατοικίας.\n\n"
         f"Διεύθυνση σύνδεσης: {login_url}\n"
         f"Όνομα χρήστη: {user.username}\n"
@@ -23,18 +25,23 @@ def send_user_invite(user, *, temporary_password: str) -> None:
         "Στην πρώτη σύνδεση θα σας ζητηθεί να ορίσετε νέο, ισχυρό κωδικό πρόσβασης.\n\n"
         "Αν δεν αναμένατε αυτό το μήνυμα, επικοινωνήστε με τον διαχειριστή."
     )
-    email = EmailMessage(
+    send_branded_email(
         subject=subject,
-        body=body,
-        from_email=settings.DEFAULT_FROM_EMAIL,
-        to=[user.email],
+        to=user.email,
+        text_body=text_body,
+        template_name="accounts/emails/invite.html",
+        context={
+            "first_name": first_name,
+            "username": user.username,
+            "temporary_password": temporary_password,
+            "login_url": login_url,
+        },
     )
-    email.send(fail_silently=False)
 
 
 def invite_user(user) -> tuple[bool, str]:
-    email = (user.email or "").strip()
-    if not email:
+    email_addr = (user.email or "").strip()
+    if not email_addr:
         return False, f"Ο χρήστης {user.username} δεν έχει email — η πρόσκληση δεν αποστάλθηκε."
 
     temporary_password = generate_temporary_password()
@@ -47,4 +54,4 @@ def invite_user(user) -> tuple[bool, str]:
     except Exception as exc:
         return False, f"Αποτυχία αποστολής email στον {user.username}: {exc}"
 
-    return True, f"Η πρόσκληση στάλθηκε στο {email} για τον χρήστη {user.username}."
+    return True, f"Η πρόσκληση στάλθηκε στο {email_addr} για τον χρήστη {user.username}."

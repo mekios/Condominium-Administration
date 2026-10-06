@@ -339,10 +339,14 @@ export class ExpenseEditComponent implements OnInit {
     request$.subscribe({
       next: (expense) => {
         this.expense = expense;
-        this.isCreateMode = false;
+        this.saving = false;
+        if (this.isCreateMode) {
+          const month = expense.month || expense.expense_date.slice(0, 7);
+          void this.router.navigate(['/app/expenses'], { queryParams: { month } });
+          return;
+        }
         this.previewMonth = expense.expense_date.slice(0, 7);
         this.message = 'Το έξοδο αποθηκεύτηκε.';
-        this.saving = false;
         this.loadDraftPreview();
       },
       error: () => {
@@ -379,21 +383,19 @@ export class ExpenseEditComponent implements OnInit {
 
   private loadExpense(id: string | null): void {
     if (this.isCreateMode) {
-      const today = new Date().toISOString().slice(0, 10);
-      this.expense = {
-        id: 0,
-        building: DEFAULT_BUILDING_ID,
-        expense_category: 'gas_heating_bill',
-        expense_date: today,
-        month: today.slice(0, 7),
-        affected_period_start: '',
-        affected_period_end: '',
-        amount: '',
-        description: '',
-      };
-      this.previewMonth = this.expense.month;
-      this.loading = false;
-      this.loadDraftPreview();
+      this.loading = true;
+      this.http.get<ExpenseItem[]>(`${API_BASE}/api/accounting/expenses/`).subscribe({
+        next: (items) => {
+          const lastInserted = items.reduce<ExpenseItem | null>((best, item) => {
+            if (!best || item.id > best.id) return item;
+            return best;
+          }, null);
+          this.initCreateExpense(lastInserted?.expense_date || this.todayIso());
+        },
+        error: () => {
+          this.initCreateExpense(this.todayIso());
+        },
+      });
       return;
     }
 
@@ -419,6 +421,27 @@ export class ExpenseEditComponent implements OnInit {
         this.loading = false;
       },
     });
+  }
+
+  private initCreateExpense(expenseDate: string): void {
+    this.expense = {
+      id: 0,
+      building: DEFAULT_BUILDING_ID,
+      expense_category: 'gas_heating_bill',
+      expense_date: expenseDate,
+      month: expenseDate.slice(0, 7),
+      affected_period_start: '',
+      affected_period_end: '',
+      amount: '',
+      description: '',
+    };
+    this.previewMonth = this.expense.month;
+    this.loading = false;
+    this.loadDraftPreview();
+  }
+
+  private todayIso(): string {
+    return new Date().toISOString().slice(0, 10);
   }
 
   private loadDraftPreview(): void {

@@ -1047,6 +1047,33 @@ class InvoiceGenerationTests(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertFalse(Vote.objects.filter(vote_session=session, apartment=self.a1).exists())
 
+    def test_administrator_cannot_vote_for_unlinked_apartment(self):
+        other_admin = User.objects.create_user(
+            username="admin_other",
+            password="pass1234",
+            role=User.Role.ADMINISTRATOR,
+        )
+        DesignatedVoter.objects.create(apartment=self.a1, voter_user=self.admin)
+
+        session = VoteSession.objects.create(
+            building=self.building,
+            session_type=VoteSession.SessionType.MOTION,
+            title="Θέμα",
+            start_at=timezone.now() - timedelta(hours=1),
+            end_at=timezone.now() + timedelta(hours=1),
+            status=VoteSession.Status.ACTIVE,
+            created_by_user=self.admin,
+        )
+
+        self.client.force_authenticate(user=other_admin)
+        response = self.client.post(
+            reverse("voting-sessions-votes", args=[session.id]),
+            {"apartment_id": self.a1.id, "vote_value": Vote.Value.YES},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertFalse(Vote.objects.filter(vote_session=session, apartment=self.a1).exists())
+
     def test_results_available_anytime_with_permille(self):
         session = VoteSession.objects.create(
             building=self.building,

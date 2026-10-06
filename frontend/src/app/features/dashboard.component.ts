@@ -1,10 +1,10 @@
 import { Component, OnDestroy, OnInit } from '@angular/core';
-import { NgFor, NgIf } from '@angular/common';
+import { NgFor, NgIf, NgTemplateOutlet } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { HttpClient } from '@angular/common/http';
 import { Router } from '@angular/router';
 
-import { finalize, forkJoin, of, Subscription, switchMap } from 'rxjs';
+import { finalize, forkJoin, of, Subscription, switchMap, catchError } from 'rxjs';
 
 import { AppDataService, Apartment, Invoice, Me } from '../core/app-data.service';
 import { AdminModeService } from '../core/admin-mode.service';
@@ -37,10 +37,54 @@ type Building = {
   fund_balance: string;
 };
 
+type MonthExpenseBar = {
+  month: string;
+  monthLabel: string;
+  tenant: number;
+  owner: number;
+  total: number;
+  tenantPct: number;
+  ownerPct: number;
+};
+
+type ApartmentExpenseChart = {
+  apartmentId: number;
+  label: string;
+  bars: MonthExpenseBar[];
+};
+
+type HeatingMeasurementRow = {
+  apartment: number;
+  measurement_date: string;
+  units_counted: string;
+};
+
+type HeatedWaterMeasurementRow = {
+  apartment: number;
+  measurement_date: string;
+  computed_heating_water_volume: string;
+};
+
+type MeasurementPoint = {
+  month: string;
+  monthLabel: string;
+  value: number;
+  x: number;
+  y: number;
+};
+
+type ApartmentMeasurementChart = {
+  apartmentId: number;
+  label: string;
+  points: MeasurementPoint[];
+  path: string;
+  yTicks: { value: number; y: number; label: string }[];
+};
+
 @Component({
   standalone: true,
   selector: 'app-dashboard',
-  imports: [NgIf, NgFor, FormsModule, EuroPipe, MonthFormatPipe],
+  imports: [NgIf, NgFor, NgTemplateOutlet, FormsModule, EuroPipe, MonthFormatPipe],
   template: `
     <section class="stats">
       <article class="stat-card welcome-card">
@@ -129,6 +173,147 @@ type Building = {
         <p class="hint" *ngIf="!loading">Δεν υπάρχουν λογαριασμοί για εμφάνιση.</p>
       </ng-template>
     </section>
+
+    <section class="panel" *ngIf="!loading && apartmentCharts.length">
+      <div class="chart-head">
+        <div>
+          <h2>Μηνιαία έξοδα ανά διαμέρισμα</h2>
+          <p class="hint chart-sub">
+            Στοίβα ανά μήνα: ποσά ενοίκου (κοινόχρηστα/κατανάλωση) και ιδιοκτήτη (μόνο ιδιοκτητών).
+          </p>
+        </div>
+        <div class="chart-legend" aria-hidden="true">
+          <span class="legend-item"><i class="swatch tenant"></i> Ένοικος</span>
+          <span class="legend-item"><i class="swatch owner"></i> Ιδιοκτήτης</span>
+        </div>
+      </div>
+
+      <div class="apt-charts">
+        <article class="apt-chart" *ngFor="let chart of apartmentCharts">
+          <header class="apt-chart-head">
+            <h3>{{ chart.label }}</h3>
+            <p>{{ chart.bars.length }} μήνες</p>
+          </header>
+          <div class="bars">
+            <div class="bar-col" *ngFor="let bar of chart.bars">
+              <span class="bar-total">{{ bar.total | euro }}</span>
+              <div class="bar-stack" [attr.title]="barTooltip(bar)">
+                <div
+                  class="seg tenant"
+                  *ngIf="bar.tenantPct > 0"
+                  [style.height.%]="bar.tenantPct"
+                ></div>
+                <div
+                  class="seg owner"
+                  *ngIf="bar.ownerPct > 0"
+                  [style.height.%]="bar.ownerPct"
+                ></div>
+              </div>
+              <span class="bar-label">{{ bar.monthLabel }}</span>
+            </div>
+          </div>
+        </article>
+      </div>
+    </section>
+
+    <section class="panel" *ngIf="!loading && heatingMeasurementCharts.length">
+      <div class="chart-head">
+        <div>
+          <h2>Θέρμανση ανά διαμέρισμα</h2>
+          <p class="hint chart-sub">Μηνιαία κατανάλωση θέρμανσης (kWh) από τις καταχωρημένες μετρήσεις.</p>
+        </div>
+        <div class="chart-legend" aria-hidden="true">
+          <span class="legend-item"><i class="swatch heating"></i> kWh</span>
+        </div>
+      </div>
+
+      <div class="apt-charts">
+        <article class="apt-chart" *ngFor="let chart of heatingMeasurementCharts">
+          <header class="apt-chart-head">
+            <h3>{{ chart.label }}</h3>
+            <p>{{ chart.points.length }} μήνες · kWh</p>
+          </header>
+          <ng-container
+            *ngTemplateOutlet="measurementLineChart; context: { $implicit: chart, series: 'heating', seriesLabel: 'Θέρμανση', unit: 'kWh' }"
+          />
+        </article>
+      </div>
+    </section>
+
+    <section class="panel" *ngIf="!loading && waterMeasurementCharts.length">
+      <div class="chart-head">
+        <div>
+          <h2>Ζεστό νερό ανά διαμέρισμα</h2>
+          <p class="hint chart-sub">Μηνιαία κατανάλωση ζεστού νερού (m³) από τις καταχωρημένες μετρήσεις.</p>
+        </div>
+        <div class="chart-legend" aria-hidden="true">
+          <span class="legend-item"><i class="swatch water"></i> m³</span>
+        </div>
+      </div>
+
+      <div class="apt-charts">
+        <article class="apt-chart" *ngFor="let chart of waterMeasurementCharts">
+          <header class="apt-chart-head">
+            <h3>{{ chart.label }}</h3>
+            <p>{{ chart.points.length }} μήνες · m³</p>
+          </header>
+          <ng-container
+            *ngTemplateOutlet="measurementLineChart; context: { $implicit: chart, series: 'water', seriesLabel: 'Ζεστό νερό', unit: 'm³' }"
+          />
+        </article>
+      </div>
+    </section>
+
+    <ng-template #measurementLineChart let-chart let-series="series" let-seriesLabel="seriesLabel" let-unit="unit">
+      <div class="line-chart-wrap">
+        <div class="y-axis">
+          <span *ngFor="let tick of chart.yTicks" [style.top.%]="(tick.y / 56) * 100">{{ tick.label }}</span>
+        </div>
+        <div class="line-chart-main">
+          <svg viewBox="0 0 100 56" preserveAspectRatio="none" class="line-svg" aria-hidden="true">
+            <line
+              *ngFor="let tick of chart.yTicks"
+              x1="0"
+              x2="100"
+              [attr.y1]="tick.y"
+              [attr.y2]="tick.y"
+              class="grid-line"
+            />
+            <polyline
+              *ngIf="chart.path"
+              [attr.points]="chart.path"
+              class="series-line"
+              [class.heating]="series === 'heating'"
+              [class.water]="series === 'water'"
+              fill="none"
+            />
+          </svg>
+          <div class="point-layer">
+            <div
+              class="point-wrap"
+              *ngFor="let point of chart.points"
+              [style.left.%]="point.x"
+              [style.top.%]="(point.y / 56) * 100"
+            >
+              <span class="point-value" [class.heating]="series === 'heating'" [class.water]="series === 'water'">
+                {{ formatMeasurementValue(point.value) }} {{ unit }}
+              </span>
+              <button
+                type="button"
+                class="point"
+                [class.heating]="series === 'heating'"
+                [class.water]="series === 'water'"
+                [attr.title]="measurementTooltip(point, seriesLabel, unit)"
+                [attr.aria-label]="measurementTooltip(point, seriesLabel, unit)"
+              ></button>
+            </div>
+          </div>
+          <div class="x-axis">
+            <span *ngFor="let point of chart.points" [style.left.%]="point.x">{{ point.monthLabel }}</span>
+          </div>
+        </div>
+      </div>
+    </ng-template>
 
     <section class="panel">
       <h2>Έξοδα τελευταίου εκδομένου μήνα</h2>
@@ -480,6 +665,239 @@ type Building = {
     @media (max-width: 640px) {
       .invoice-grid { grid-template-columns: 1fr; }
     }
+    .chart-head {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 0.8rem;
+      flex-wrap: wrap;
+    }
+    .chart-sub {
+      margin-top: 0.25rem;
+      margin-bottom: 0.35rem;
+    }
+    .chart-legend {
+      display: flex;
+      gap: 0.85rem;
+      align-items: center;
+      flex-wrap: wrap;
+      padding-top: 0.15rem;
+    }
+    .legend-item {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.35rem;
+      color: #b7c8ef;
+      font-size: 0.82rem;
+      font-weight: 600;
+    }
+    .swatch {
+      display: inline-block;
+      width: 0.7rem;
+      height: 0.7rem;
+      border-radius: 3px;
+    }
+    .swatch.tenant {
+      background: linear-gradient(180deg, #5b8dff, #3d6adf);
+    }
+    .swatch.owner {
+      background: linear-gradient(180deg, #ffd37d, #e8a93a);
+    }
+    .swatch.heating {
+      background: linear-gradient(180deg, #ff8f7a, #e4573d);
+    }
+    .swatch.water {
+      background: linear-gradient(180deg, #6ad7ff, #2f9fd4);
+    }
+    .line-chart-wrap {
+      display: grid;
+      grid-template-columns: 2.6rem 1fr;
+      gap: 0.35rem;
+      align-items: stretch;
+      min-height: 190px;
+    }
+    .y-axis {
+      position: relative;
+      height: 150px;
+      margin-top: 0.2rem;
+    }
+    .y-axis span {
+      position: absolute;
+      right: 0;
+      transform: translateY(-50%);
+      color: #8096c8;
+      font-size: 0.68rem;
+      font-variant-numeric: tabular-nums;
+      line-height: 1;
+    }
+    .line-chart-main {
+      position: relative;
+      min-width: 0;
+    }
+    .line-svg {
+      width: 100%;
+      height: 150px;
+      display: block;
+      background: rgba(12, 20, 42, 0.55);
+      border: 1px solid #2a3c66;
+      border-radius: 10px;
+    }
+    .grid-line {
+      stroke: rgba(120, 145, 200, 0.18);
+      stroke-width: 0.35;
+    }
+    .series-line {
+      stroke-width: 1.5;
+      stroke-linejoin: round;
+      stroke-linecap: round;
+      vector-effect: non-scaling-stroke;
+    }
+    .series-line.heating {
+      stroke: #ff7a62;
+    }
+    .series-line.water {
+      stroke: #4fc4ef;
+    }
+    .point-layer {
+      position: absolute;
+      inset: 0 0 auto 0;
+      height: 150px;
+      pointer-events: none;
+    }
+    .point-wrap {
+      position: absolute;
+      transform: translate(-50%, -50%);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 0.18rem;
+      pointer-events: none;
+    }
+    .point-value {
+      font-size: 0.68rem;
+      font-weight: 700;
+      font-variant-numeric: tabular-nums;
+      line-height: 1;
+      white-space: nowrap;
+      text-shadow: 0 1px 2px rgba(8, 14, 30, 0.85);
+      transform: translateY(-0.15rem);
+    }
+    .point-value.heating {
+      color: #ffb3a4;
+    }
+    .point-value.water {
+      color: #9adfff;
+    }
+    .point {
+      position: relative;
+      width: 0.55rem;
+      height: 0.55rem;
+      border-radius: 50%;
+      border: 2px solid #0c142a;
+      transform: none;
+      padding: 0;
+      pointer-events: auto;
+      cursor: default;
+    }
+    .point.heating {
+      background: #ff7a62;
+    }
+    .point.water {
+      background: #4fc4ef;
+    }
+    .x-axis {
+      position: relative;
+      height: 1.5rem;
+      margin-top: 0.35rem;
+    }
+    .x-axis span {
+      position: absolute;
+      transform: translateX(-50%);
+      color: #91a6d6;
+      font-size: 0.68rem;
+      white-space: nowrap;
+      line-height: 1.15;
+      text-align: center;
+    }
+    .apt-charts {
+      display: grid;
+      gap: 0.85rem;
+      margin-top: 0.55rem;
+    }
+    .apt-chart {
+      border: 1px solid #27385f;
+      border-radius: 12px;
+      background: #0f1933;
+      padding: 0.8rem 0.85rem 0.7rem;
+    }
+    .apt-chart-head {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: 0.5rem;
+      margin-bottom: 0.55rem;
+    }
+    .apt-chart-head h3 {
+      margin: 0;
+      font-size: 0.95rem;
+      color: #e8f0ff;
+    }
+    .apt-chart-head p {
+      margin: 0;
+      color: #8aa0d0;
+      font-size: 0.78rem;
+    }
+    .bars {
+      display: flex;
+      align-items: flex-end;
+      gap: 0.45rem;
+      overflow-x: auto;
+      padding: 0.15rem 0.1rem 0.2rem;
+      min-height: 180px;
+    }
+    .bar-col {
+      flex: 0 0 auto;
+      width: 3.1rem;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 0.28rem;
+    }
+    .bar-total {
+      font-size: 0.68rem;
+      color: #c5d4f5;
+      font-variant-numeric: tabular-nums;
+      white-space: nowrap;
+    }
+    .bar-stack {
+      width: 100%;
+      height: 140px;
+      display: flex;
+      flex-direction: column-reverse;
+      justify-content: flex-start;
+      border-radius: 8px 8px 4px 4px;
+      overflow: hidden;
+      background: rgba(18, 28, 55, 0.85);
+      border: 1px solid #2a3c66;
+    }
+    .seg {
+      width: 100%;
+      min-height: 2px;
+      transition: height 0.25s ease;
+    }
+    .seg.tenant {
+      background: linear-gradient(180deg, #6a97ff 0%, #3d6adf 100%);
+    }
+    .seg.owner {
+      background: linear-gradient(180deg, #ffe09a 0%, #e8a93a 100%);
+    }
+    .bar-label {
+      font-size: 0.68rem;
+      color: #91a6d6;
+      text-align: center;
+      line-height: 1.15;
+      max-width: 100%;
+    }
   `,
 })
 export class DashboardComponent implements OnInit, OnDestroy {
@@ -490,6 +908,9 @@ export class DashboardComponent implements OnInit, OnDestroy {
   displayInvoices: Invoice[] = [];
   latestInvoices: Invoice[] = [];
   latestExpenses: ExpenseItem[] = [];
+  apartmentCharts: ApartmentExpenseChart[] = [];
+  heatingMeasurementCharts: ApartmentMeasurementChart[] = [];
+  waterMeasurementCharts: ApartmentMeasurementChart[] = [];
   month = new Date().toISOString().slice(0, 7);
   openingBalance = 0;
   latestIssuedMonth = '';
@@ -533,16 +954,33 @@ export class DashboardComponent implements OnInit, OnDestroy {
             personalInvoices: this.http.get<Invoice[]>(`${API_BASE}/api/invoices/?personal_scope=1`),
             buildingInvoices: this.http.get<Invoice[]>(this.buildingInvoicesUrl(me)),
             building: this.http.get<Building>(`${API_BASE}/api/buildings/${DEFAULT_BUILDING_ID}/`),
+            heating: this.http
+              .get<HeatingMeasurementRow[]>(`${API_BASE}/api/accounting/heating-inputs/`)
+              .pipe(catchError(() => of([] as HeatingMeasurementRow[]))),
+            heatedWater: this.http
+              .get<HeatedWaterMeasurementRow[]>(`${API_BASE}/api/accounting/heated-water-inputs/`)
+              .pipe(catchError(() => of([] as HeatedWaterMeasurementRow[]))),
           }),
         ),
         finalize(() => (this.loading = false)),
       )
       .subscribe({
-        next: ({ me, apartments, personalInvoices, buildingInvoices, building }) => {
+        next: ({ me, apartments, personalInvoices, buildingInvoices, building, heating, heatedWater }) => {
           this.me = me;
           this.refreshCanManage();
           this.apartments = apartments;
           this.invoices = personalInvoices;
+          this.apartmentCharts = this.buildApartmentCharts(apartments, personalInvoices);
+          this.heatingMeasurementCharts = this.buildSingleMeasurementCharts(
+            apartments,
+            heating,
+            (row) => Number(row.units_counted || 0),
+          );
+          this.waterMeasurementCharts = this.buildSingleMeasurementCharts(
+            apartments,
+            heatedWater,
+            (row) => Number(row.computed_heating_water_volume || 0),
+          );
           this.openingBalance = Number(building.fund_balance || 0);
           this.unpaidInvoices = personalInvoices.filter((inv) => Number(inv.outstanding_balance) > 0);
           this.latestInvoices = this.findLatestInvoices(personalInvoices);
@@ -703,6 +1141,147 @@ export class DashboardComponent implements OnInit, OnDestroy {
     const labels = this.apartments.map((apt) => apt.apartment_label);
     if (labels.length === 1) return `Διαμέρισμα ${labels[0]}`;
     return `Διαμερίσματα ${labels.join(', ')}`;
+  }
+
+  barTooltip(bar: MonthExpenseBar): string {
+    return `${bar.monthLabel}: ένοικος ${bar.tenant.toFixed(2)}€ · ιδιοκτήτης ${bar.owner.toFixed(2)}€ · σύνολο ${bar.total.toFixed(2)}€`;
+  }
+
+  measurementTooltip(point: MeasurementPoint, series: string, unit: string): string {
+    return `${point.monthLabel}: ${series} ${this.formatMeasurementValue(point.value)} ${unit}`;
+  }
+
+  formatMeasurementValue(value: number): string {
+    if (!Number.isFinite(value)) return '-';
+    if (Math.abs(value) >= 100) return value.toFixed(0);
+    if (Math.abs(value) >= 10) return value.toFixed(1);
+    return value.toFixed(1);
+  }
+
+  private buildApartmentCharts(apartments: Apartment[], invoices: Invoice[]): ApartmentExpenseChart[] {
+    if (!apartments.length) return [];
+
+    const issued = invoices.filter((inv) => inv.status === 'issued' || inv.status === 'paid');
+    return apartments.map((apt) => {
+      const byMonth = new Map<string, { tenant: number; owner: number }>();
+      for (const inv of issued) {
+        if (inv.apartment !== apt.id) continue;
+        const owner = Number(inv.owners_only_total || 0);
+        const total = Number(inv.invoice_total || 0);
+        const tenant = Math.max(0, total - owner);
+        const current = byMonth.get(inv.month) ?? { tenant: 0, owner: 0 };
+        current.tenant += tenant;
+        current.owner += owner;
+        byMonth.set(inv.month, current);
+      }
+
+      const months = [...byMonth.keys()].sort().slice(-12);
+      const maxTotal = Math.max(
+        1,
+        ...months.map((month) => {
+          const row = byMonth.get(month)!;
+          return row.tenant + row.owner;
+        }),
+      );
+
+      const bars: MonthExpenseBar[] = months.map((month) => {
+        const row = byMonth.get(month)!;
+        const total = row.tenant + row.owner;
+        return {
+          month,
+          monthLabel: this.formatShortMonth(month),
+          tenant: row.tenant,
+          owner: row.owner,
+          total,
+          tenantPct: (row.tenant / maxTotal) * 100,
+          ownerPct: (row.owner / maxTotal) * 100,
+        };
+      });
+
+      return {
+        apartmentId: apt.id,
+        label: apt.apartment_label || apt.unit_code,
+        bars,
+      };
+    }).filter((chart) => chart.bars.length > 0);
+  }
+
+  private formatShortMonth(month: string): string {
+    const [yearStr, monthStr] = month.split('-');
+    const year = Number(yearStr);
+    const monthNo = Number(monthStr);
+    if (!year || !monthNo) return month;
+    const label = new Intl.DateTimeFormat('el', { month: 'short' }).format(new Date(year, monthNo - 1, 1));
+    const shortYear = String(year).slice(2);
+    return `${label.replace('.', '')} '${shortYear}`;
+  }
+
+  private buildSingleMeasurementCharts<T extends { apartment: number; measurement_date: string }>(
+    apartments: Apartment[],
+    rows: T[],
+    valueOf: (row: T) => number,
+  ): ApartmentMeasurementChart[] {
+    if (!apartments.length) return [];
+
+    const chartPadX = 4;
+    const chartPadTop = 4;
+    const chartPadBottom = 4;
+    const chartHeight = 56;
+    const plotHeight = chartHeight - chartPadTop - chartPadBottom;
+
+    return apartments
+      .map((apt) => {
+        // First reading is a baseline (delta from 0 = full meter value) — skip it.
+        const aptRows = rows
+          .filter((row) => row.apartment === apt.id)
+          .sort((a, b) => a.measurement_date.localeCompare(b.measurement_date))
+          .slice(1);
+
+        const byMonth = new Map<string, number>();
+        for (const row of aptRows) {
+          const month = row.measurement_date.slice(0, 7);
+          byMonth.set(month, (byMonth.get(month) ?? 0) + valueOf(row));
+        }
+
+        const months = [...byMonth.keys()].sort().slice(-12);
+        if (!months.length) return null;
+
+        const maxValue = Math.max(1, ...months.map((month) => byMonth.get(month) ?? 0));
+
+        const points: MeasurementPoint[] = months.map((month, index) => {
+          const value = byMonth.get(month) ?? 0;
+          const x =
+            months.length === 1
+              ? 50
+              : chartPadX + (index / (months.length - 1)) * (100 - chartPadX * 2);
+          const y = chartPadTop + plotHeight * (1 - value / maxValue);
+          return {
+            month,
+            monthLabel: this.formatShortMonth(month),
+            value,
+            x,
+            y,
+          };
+        });
+
+        const yTicks = [0, 0.5, 1].map((ratio) => {
+          const value = maxValue * (1 - ratio);
+          return {
+            value,
+            y: chartPadTop + plotHeight * ratio,
+            label: value >= 10 ? value.toFixed(0) : value.toFixed(1),
+          };
+        });
+
+        return {
+          apartmentId: apt.id,
+          label: apt.apartment_label || apt.unit_code,
+          points,
+          path: points.map((p) => `${p.x},${p.y}`).join(' '),
+          yTicks,
+        };
+      })
+      .filter((chart): chart is ApartmentMeasurementChart => chart !== null);
   }
 
   private setGreetingByCurrentTime(): void {

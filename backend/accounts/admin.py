@@ -1,5 +1,6 @@
 from django.contrib import admin, messages
 from django.contrib.auth.admin import UserAdmin
+from django.utils.translation import gettext_lazy as _
 
 from flats.admin import ApartmentUserInline
 
@@ -19,8 +20,28 @@ class AppUserAdmin(UserAdmin):
     add_form = InviteUserCreationForm
 
     fieldsets = (
-        *UserAdmin.fieldsets,
-        ("App access", {"fields": ("role", "preferred_language", "must_change_password")}),
+        (None, {"fields": ("username", "password")}),
+        (_("Personal info"), {"fields": ("first_name", "last_name", "email")}),
+        (
+            "Ρόλος εφαρμογής",
+            {
+                "fields": ("role", "preferred_language", "must_change_password"),
+                "description": "Επίλεξε «Administrator» για διαχειριστή πολυκατοικίας.",
+            },
+        ),
+        (
+            _("Permissions"),
+            {
+                "fields": (
+                    "is_active",
+                    "is_staff",
+                    "is_superuser",
+                    "groups",
+                    "user_permissions",
+                ),
+            },
+        ),
+        (_("Important dates"), {"fields": ("last_login", "date_joined")}),
     )
     add_fieldsets = (
         (
@@ -31,7 +52,13 @@ class AppUserAdmin(UserAdmin):
                 "description": "Ο προσωρινός κωδικός θα αποσταλεί στο email.",
             },
         ),
-        ("App access", {"fields": ("role", "preferred_language")}),
+        (
+            "Ρόλος εφαρμογής",
+            {
+                "fields": ("role", "preferred_language"),
+                "description": "Επίλεξε «Administrator» για διαχειριστή πολυκατοικίας.",
+            },
+        ),
     )
 
     @admin.display(description="Apartments")
