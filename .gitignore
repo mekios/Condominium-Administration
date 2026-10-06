@@ -17,3 +17,4 @@ frontend/dist/
 # Production secrets and collected static files
 .env
 backend/staticfiles/
+backups/
