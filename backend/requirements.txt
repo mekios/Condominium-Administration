@@ -5,3 +5,4 @@ django-cors-headers
 psycopg[binary]
 gunicorn
 reportlab
+whitenoise

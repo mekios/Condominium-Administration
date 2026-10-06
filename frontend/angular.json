@@ -35,6 +35,12 @@
           },
           "configurations": {
             "production": {
+              "fileReplacements": [
+                {
+                  "replace": "src/app/core/api.constants.ts",
+                  "with": "src/app/core/api.constants.prod.ts"
+                }
+              ],
               "budgets": [
                 {
                   "type": "initial",

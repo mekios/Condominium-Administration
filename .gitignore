@@ -13,3 +13,7 @@ frontend/dist/
 # IDE / misc
 .DS_Store
 *.log
+
+# Production secrets and collected static files
+.env
+backend/staticfiles/

@@ -1,0 +1,16 @@
+www.metamorfoseos5.site {
+	redir https://metamorfoseos5.site{uri} permanent
+}
+
+metamorfoseos5.site {
+	encode gzip
+
+	@backend path /api/* /admin /admin/* /static/*
+	handle @backend {
+		reverse_proxy backend:8000
+	}
+
+	handle {
+		reverse_proxy frontend:80
+	}
+}
