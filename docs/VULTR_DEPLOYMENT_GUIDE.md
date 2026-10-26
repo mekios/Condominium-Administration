@@ -133,8 +133,8 @@ Invites, password reset, invoices, and receipts are sent through Brevo’s SMTP 
 
 In `.env` set:
 
-- `EMAIL_HOST_USER` — the email you use to log in to Brevo
-- `EMAIL_HOST_PASSWORD` — the SMTP key from Brevo → SMTP & API (not the account password)
+- `EMAIL_HOST_USER` — the **Login** on [Brevo → SMTP & API → SMTP](https://app.brevo.com/settings/keys/smtp). On newer accounts this is an address like `1234567@smtp-brevo.com`, not the email you use to sign in, not `noreply@metamorfoseos5.site`, and not `smtp-relay.brevo.com`
+- `EMAIL_HOST_PASSWORD` — an **SMTP key** from that same page (it starts with `xsmtpsib-`). An API key (`xkeysib-`) and the Brevo account password both produce `535 5.7.8 Authentication failed`
 - `DEFAULT_FROM_EMAIL` — a sender verified in Brevo, for example `noreply@metamorfoseos5.site`
 
 Authenticate `metamorfoseos5.site` in Brevo and publish the DNS records it shows (Brevo code, DKIM, DMARC, and SPF). Then run `./deploy-production.sh` again. Without the SMTP login and key, Django prints mail to the container log instead of sending it.

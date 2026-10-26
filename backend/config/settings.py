@@ -171,15 +171,24 @@ CORS_ALLOWED_ORIGINS = [
     origin.strip() for origin in os.getenv("CORS_ALLOWED_ORIGINS", "http://localhost:4200,http://localhost:8080,http://localhost:8081").split(",") if origin.strip()
 ]
 
+def _env_mail_value(name: str) -> str:
+    value = os.getenv(name, "").strip().strip("\r")
+    if len(value) >= 2 and value[0] == value[-1] and value[0] in {'"', "'"}:
+        value = value[1:-1].strip()
+    return value
+
+
 # Outbound mail uses Brevo's SMTP relay (smtp-relay.brevo.com:587).
-# EMAIL_HOST_USER is the Brevo login email; EMAIL_HOST_PASSWORD is the SMTP key
-# from Brevo → SMTP & API. DEFAULT_FROM_EMAIL must be a sender verified in Brevo.
+# EMAIL_HOST_USER is the Login on Brevo → SMTP & API → SMTP (often …@smtp-brevo.com),
+# not the account email and not smtp-relay.brevo.com.
+# EMAIL_HOST_PASSWORD is the SMTP key from that same page (xsmtpsib-…), not the API key.
+# DEFAULT_FROM_EMAIL must be a sender verified in Brevo.
 # Without those credentials, mail is printed to the console (local dev and tests).
-EMAIL_HOST = os.getenv("EMAIL_HOST") or "smtp-relay.brevo.com"
+EMAIL_HOST = _env_mail_value("EMAIL_HOST") or "smtp-relay.brevo.com"
 EMAIL_PORT = int(os.getenv("EMAIL_PORT", "587"))
 EMAIL_USE_TLS = os.getenv("EMAIL_USE_TLS", "1") == "1"
-EMAIL_HOST_USER = os.getenv("EMAIL_HOST_USER", "")
-EMAIL_HOST_PASSWORD = os.getenv("EMAIL_HOST_PASSWORD", "")
+EMAIL_HOST_USER = _env_mail_value("EMAIL_HOST_USER")
+EMAIL_HOST_PASSWORD = _env_mail_value("EMAIL_HOST_PASSWORD")
 DEFAULT_FROM_EMAIL = os.getenv("DEFAULT_FROM_EMAIL", "noreply@building.local")
 SERVER_EMAIL = os.getenv("SERVER_EMAIL", DEFAULT_FROM_EMAIL)
 FRONTEND_LOGIN_URL = os.getenv("FRONTEND_LOGIN_URL", "http://localhost:8081/login")

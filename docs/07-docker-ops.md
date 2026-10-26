@@ -94,7 +94,7 @@ Minimum set (suggested):
 
 Email (user invites, password reset, and invoice/receipt dispatch) is sent through Brevo SMTP:
 - `EMAIL_HOST` defaults to `smtp-relay.brevo.com`, `EMAIL_PORT` `587`, `EMAIL_USE_TLS` `1`
-- `EMAIL_HOST_USER` (Brevo account email) and `EMAIL_HOST_PASSWORD` (Brevo SMTP key)
+- `EMAIL_HOST_USER` (Login on Brevo → SMTP & API → SMTP, often `…@smtp-brevo.com`) and `EMAIL_HOST_PASSWORD` (SMTP key `xsmtpsib-…`, not an API key)
 - `DEFAULT_FROM_EMAIL` (must be a sender verified in Brevo)
 - `EMAIL_BACKEND` (optional override; defaults to console when the Brevo login or SMTP key is empty, otherwise Django SMTP)
 - `FRONTEND_LOGIN_URL` (link included in invite emails, e.g. `http://localhost:8081/login`)

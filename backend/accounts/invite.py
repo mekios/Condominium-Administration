@@ -52,6 +52,14 @@ def invite_user(user) -> tuple[bool, str]:
     try:
         send_user_invite(user, temporary_password=temporary_password)
     except Exception as exc:
+        detail = str(exc)
+        if "535" in detail or "Authentication failed" in detail:
+            return False, (
+                f"Αποτυχία αποστολής email στον {user.username}: το Brevo απέρριψε τη σύνδεση SMTP. "
+                "Το EMAIL_HOST_USER πρέπει να είναι το Login από Brevo → SMTP & API "
+                "(συχνά …@smtp-brevo.com) και το EMAIL_HOST_PASSWORD το SMTP key (xsmtpsib-…), "
+                "όχι το API key και όχι τον κωδικό του λογαριασμού."
+            )
         return False, f"Αποτυχία αποστολής email στον {user.username}: {exc}"
 
     return True, f"Η πρόσκληση στάλθηκε στο {email_addr} για τον χρήστη {user.username}."
