@@ -1,5 +1,5 @@
-import { Component, OnInit } from '@angular/core';
-import { DatePipe, NgFor, NgIf } from '@angular/common';
+import { Component, Inject, LOCALE_ID, OnInit } from '@angular/core';
+import { DatePipe, NgFor, NgIf, formatDate } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { HttpClient } from '@angular/common/http';
 import { finalize } from 'rxjs';
@@ -40,6 +40,8 @@ type MonthDetailRow = {
 type EntryRow = {
   apartment_id: number;
   apartment_label: string;
+  unit_code: string;
+  owner_name: string;
   building_name: string;
   previous_heating_reading: string;
   previous_heated_water_reading: string;
@@ -190,6 +192,17 @@ type EntryFormResponse = BuildingMeasurementFields & {
               {{ saving ? 'Αποθήκευση...' : 'Αποθήκευση μετρήσεων' }}
             </button>
             <button class="btn btn-secondary" (click)="closeEntryPanel()" [disabled]="saving">Ακύρωση</button>
+            <button
+              class="btn btn-secondary btn-print"
+              (click)="printMeasurementSheet()"
+              [disabled]="!entryRows.length || loadingEntryForm"
+              title="Εκτύπωση φύλλου για χειρόγραφη καταγραφή ενδείξεων"
+            >
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M6 9V2h12v7 M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2 M6 14h12v8H6z" />
+              </svg>
+              Εκτύπωση φύλλου μετρήσεων
+            </button>
           </div>
         </section>
 
@@ -648,6 +661,25 @@ type EntryFormResponse = BuildingMeasurementFields & {
       border: 1px solid #30457d;
       background: #132247;
     }
+    .btn:disabled {
+      opacity: 0.55;
+      cursor: not-allowed;
+    }
+    .btn-print {
+      margin-left: auto;
+      display: inline-flex;
+      align-items: center;
+      gap: 0.45rem;
+    }
+    .btn-print svg {
+      width: 1.05rem;
+      height: 1.05rem;
+      fill: none;
+      stroke: currentColor;
+      stroke-width: 2;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+    }
     .row-actions {
       white-space: nowrap;
       vertical-align: middle;
@@ -690,6 +722,7 @@ export class MeasurementsComponent implements OnInit {
     private readonly http: HttpClient,
     private readonly adminMode: AdminModeService,
     private readonly dialog: DialogService,
+    @Inject(LOCALE_ID) private readonly locale: string,
   ) {}
 
   ngOnInit(): void {
@@ -1008,6 +1041,167 @@ export class MeasurementsComponent implements OnInit {
           this.message = error?.error?.detail || 'Αποτυχία αποθήκευσης μετρήσεων.';
         },
       });
+  }
+
+  printMeasurementSheet(): void {
+    if (!this.entryRows.length) return;
+    const printWindow = window.open('', '_blank');
+    if (!printWindow) {
+      this.message = 'Ο φυλλομετρητής μπλόκαρε το παράθυρο εκτύπωσης. Επιτρέψτε τα αναδυόμενα παράθυρα.';
+      return;
+    }
+    printWindow.document.open();
+    printWindow.document.write(this.buildMeasurementSheetHtml());
+    printWindow.document.close();
+    printWindow.focus();
+    if (printWindow.document.readyState === 'complete') {
+      printWindow.print();
+    } else {
+      printWindow.addEventListener('load', () => printWindow.print(), { once: true });
+    }
+  }
+
+  private buildMeasurementSheetHtml(): string {
+    const esc = (value: string | null | undefined) =>
+      (value ?? '')
+        .toString()
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;');
+    const buildingName = this.entryRows[0]?.building_name ?? '';
+    const dateLabel = this.entryDate ? formatDate(this.entryDate, 'd MMMM yyyy', this.locale) : '';
+    const printedAt = formatDate(new Date(), 'dd/MM/yyyy HH:mm', this.locale);
+
+    const apartmentRows = this.entryRows
+      .map(
+        (row, index) => `
+          <tr>
+            <td class="num">${index + 1}</td>
+            <td class="unit">${esc(row.unit_code)}</td>
+            <td class="owner">${esc(row.owner_name) || '&nbsp;'}</td>
+            <td class="prev">${esc(this.formatOneDecimal(row.previous_heating_reading))}</td>
+            <td class="fill"></td>
+            <td class="prev">${esc(this.formatOneDecimal(row.previous_heated_water_reading))}</td>
+            <td class="fill"></td>
+            <td class="notes"></td>
+          </tr>`,
+      )
+      .join('');
+
+    return `<!doctype html>
+<html lang="el">
+<head>
+<meta charset="utf-8">
+<title>Φύλλο μετρήσεων ${esc(dateLabel)}</title>
+<style>
+  @page { size: A4 portrait; margin: 12mm 10mm; }
+  * { box-sizing: border-box; }
+  body {
+    font-family: "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    color: #111;
+    margin: 0;
+    font-size: 10.5pt;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+  header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-end;
+    border-bottom: 2px solid #111;
+    padding-bottom: 6px;
+    margin-bottom: 10px;
+  }
+  h1 { font-size: 16pt; margin: 0 0 2px; letter-spacing: 0.02em; }
+  .subtitle { font-size: 10.5pt; color: #333; }
+  .meta { text-align: right; font-size: 10pt; line-height: 1.6; }
+  .meta .blank { display: inline-block; min-width: 42mm; border-bottom: 1px solid #555; }
+  table { width: 100%; border-collapse: collapse; table-layout: fixed; }
+  th, td { border: 1px solid #444; padding: 0 5px; vertical-align: middle; }
+  thead th { background: #e9edf3; font-size: 9pt; font-weight: 600; text-align: center; height: 7mm; }
+  thead th.grp-h { background: #fbe3d4; }
+  thead th.grp-w { background: #d8e9fa; }
+  tbody tr { height: 11mm; page-break-inside: avoid; break-inside: avoid; }
+  tbody tr:nth-child(even) td:not(.fill) { background: #f7f8fa; }
+  td.num { text-align: center; color: #666; font-size: 9pt; }
+  td.unit { font-weight: 700; font-size: 11pt; }
+  td.owner { font-size: 9.5pt; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  td.prev { text-align: right; font-variant-numeric: tabular-nums; color: #333; }
+  td.fill { background: #fff; border-width: 1.5px; border-color: #111; }
+  tr.boiler td { border-top: 2px solid #111; }
+  tr.boiler td.unit { font-size: 10pt; }
+  thead { display: table-header-group; }
+  footer {
+    margin-top: 14mm;
+    display: flex;
+    justify-content: space-between;
+    gap: 12mm;
+    font-size: 10pt;
+  }
+  footer .sig { flex: 1; border-top: 1px solid #555; padding-top: 3px; text-align: center; color: #333; }
+  .printed { margin-top: 6mm; font-size: 8pt; color: #777; text-align: right; }
+</style>
+</head>
+<body>
+  <header>
+    <div>
+      <h1>Φύλλο μετρήσεων</h1>
+      <div class="subtitle">${esc(buildingName)} · Θέρμανση &amp; ζεστό νερό</div>
+    </div>
+    <div class="meta">
+      <div>Ημερομηνία μέτρησης: <strong>${esc(dateLabel)}</strong></div>
+      <div>Ώρα: <span class="blank"></span></div>
+    </div>
+  </header>
+
+  <table>
+    <colgroup>
+      <col style="width:7mm">
+      <col style="width:16mm">
+      <col>
+      <col style="width:20mm">
+      <col style="width:28mm">
+      <col style="width:20mm">
+      <col style="width:28mm">
+      <col style="width:30mm">
+    </colgroup>
+    <thead>
+      <tr>
+        <th rowspan="2">#</th>
+        <th rowspan="2">Διαμ.</th>
+        <th rowspan="2">Ιδιοκτήτης</th>
+        <th colspan="2" class="grp-h">Θέρμανση</th>
+        <th colspan="2" class="grp-w">Ζεστό νερό</th>
+        <th rowspan="2">Παρατηρήσεις</th>
+      </tr>
+      <tr>
+        <th class="grp-h">Προηγ.</th>
+        <th class="grp-h">Τρέχουσα</th>
+        <th class="grp-w">Προηγ.</th>
+        <th class="grp-w">Τρέχουσα</th>
+      </tr>
+    </thead>
+    <tbody>
+      ${apartmentRows}
+      <tr class="boiler">
+        <td class="num"></td>
+        <td class="unit" colspan="2">Λέβητας ζεστού νερού (κτίριο)</td>
+        <td class="prev">${esc(this.formatOneDecimal(this.buildingPreviousReading))}</td>
+        <td class="fill"></td>
+        <td colspan="2"></td>
+        <td class="notes"></td>
+      </tr>
+    </tbody>
+  </table>
+
+  <footer>
+    <div class="sig">Καταγραφή από</div>
+    <div class="sig">Υπογραφή</div>
+  </footer>
+  <div class="printed">Εκτυπώθηκε: ${esc(printedAt)}</div>
+</body>
+</html>`;
   }
 
   private sortRowsByUnitCode<T extends { apartment_label: string }>(rows: T[]): T[] {

@@ -1479,6 +1479,8 @@ class HeatingMeasurementInputViewSet(AdminWriteRequiredMixin, viewsets.ModelView
                 {
                     "apartment_id": apartment.id,
                     "apartment_label": apartment.apartment_label,
+                    "unit_code": apartment.unit_code,
+                    "owner_name": apartment.owner_name,
                     "building_name": apartment.building.name,
                     "previous_heating_reading": str(prev_heating.current_reading if prev_heating else Decimal("0")),
                     "previous_heated_water_reading": str(prev_water.current_reading if prev_water else Decimal("0")),
