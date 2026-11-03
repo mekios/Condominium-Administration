@@ -125,8 +125,8 @@ type ApartmentMeasurementChart = {
               <button class="fund-cancel-btn" type="button" (click)="cancelFundEdit()" [disabled]="fundSaving">✕</button>
             </div>
           </div>
-          <div><span>- Έξοδα</span><strong>{{ latestExpensesTotal | euro }}</strong></div>
           <div><span>- Ανεξόφλητα</span><strong>{{ unpaidTotal | euro }}</strong></div>
+          <div><span>- Τρέχοντα έξοδα</span><strong>{{ unbilledExpensesTotal | euro }}</strong></div>
         </div>
         <div class="finance-meter" role="presentation">
           <span class="fill" [style.width.%]="balanceFillPercent"></span>
@@ -916,6 +916,7 @@ export class DashboardComponent implements OnInit, OnDestroy {
   latestIssuedMonth = '';
   latestExpensesTotal = 0;
   unpaidTotal = 0;
+  unbilledExpensesTotal = 0;
   buildingFinanceBalance = 0;
   balanceFillPercent = 100;
   canManage = false;
@@ -954,6 +955,9 @@ export class DashboardComponent implements OnInit, OnDestroy {
             personalInvoices: this.http.get<Invoice[]>(`${API_BASE}/api/invoices/?personal_scope=1`),
             buildingInvoices: this.http.get<Invoice[]>(this.buildingInvoicesUrl(me)),
             building: this.http.get<Building>(`${API_BASE}/api/buildings/${DEFAULT_BUILDING_ID}/`),
+            expenses: this.http
+              .get<ExpenseItem[]>(`${API_BASE}/api/accounting/expenses/`)
+              .pipe(catchError(() => of([] as ExpenseItem[]))),
             heating: this.http
               .get<HeatingMeasurementRow[]>(`${API_BASE}/api/accounting/heating-inputs/`)
               .pipe(catchError(() => of([] as HeatingMeasurementRow[]))),
@@ -965,7 +969,7 @@ export class DashboardComponent implements OnInit, OnDestroy {
         finalize(() => (this.loading = false)),
       )
       .subscribe({
-        next: ({ me, apartments, personalInvoices, buildingInvoices, building, heating, heatedWater }) => {
+        next: ({ me, apartments, personalInvoices, buildingInvoices, building, expenses, heating, heatedWater }) => {
           this.me = me;
           this.refreshCanManage();
           this.apartments = apartments;
@@ -985,15 +989,28 @@ export class DashboardComponent implements OnInit, OnDestroy {
           this.unpaidInvoices = personalInvoices.filter((inv) => Number(inv.outstanding_balance) > 0);
           this.latestInvoices = this.findLatestInvoices(personalInvoices);
           this.displayInvoices = this.unpaidInvoices.length ? this.unpaidInvoices : this.latestInvoices;
+          this.latestIssuedMonth = this.findLatestIssuedMonth(buildingInvoices);
           this.unpaidTotal = buildingInvoices
             .filter((inv) => Number(inv.outstanding_balance) > 0)
             .reduce((sum, inv) => sum + Number(inv.outstanding_balance || 0), 0);
-          this.latestIssuedMonth = this.findLatestIssuedMonth(buildingInvoices);
-          if (this.latestIssuedMonth) {
-            this.loadLatestExpenses(this.latestIssuedMonth);
-          } else {
-            this.recomputeBuildingBalance();
-          }
+          const billedMonths = new Set(
+            buildingInvoices
+              .filter((invoice) => invoice.status === 'issued' || invoice.status === 'paid')
+              .map((invoice) => invoice.month),
+          );
+          this.unbilledExpensesTotal = expenses
+            .filter(
+              (expense) =>
+                !isFundIncreaseCategory(expense.expense_category) && !billedMonths.has(expense.month),
+            )
+            .reduce((sum, expense) => sum + Number(expense.amount || 0), 0);
+          this.latestExpenses = this.latestIssuedMonth
+            ? expenses.filter((expense) => expense.month === this.latestIssuedMonth)
+            : [];
+          this.latestExpensesTotal = this.latestExpenses
+            .filter((expense) => !isFundIncreaseCategory(expense.expense_category))
+            .reduce((sum, expense) => sum + Number(expense.amount || 0), 0);
+          this.recomputeBuildingBalance();
         },
         error: () => {
           this.message = 'Αποτυχία φόρτωσης δεδομένων πίνακα ελέγχου.';
@@ -1055,23 +1072,6 @@ export class DashboardComponent implements OnInit, OnDestroy {
     return `${API_BASE}/api/invoices/?building_scope=1`;
   }
 
-  private loadLatestExpenses(month: string): void {
-    this.http.get<ExpenseItem[]>(`${API_BASE}/api/accounting/expenses/?month=${month}`).subscribe({
-      next: (expenses) => {
-        this.latestExpenses = expenses;
-        this.latestExpensesTotal = expenses
-          .filter((expense) => !isFundIncreaseCategory(expense.expense_category))
-          .reduce((sum, expense) => sum + Number(expense.amount || 0), 0);
-        this.recomputeBuildingBalance();
-      },
-      error: () => {
-        this.latestExpenses = [];
-        this.latestExpensesTotal = 0;
-        this.recomputeBuildingBalance();
-      },
-    });
-  }
-
   private findLatestIssuedMonth(invoices: Invoice[]): string {
     const issuedMonths = invoices
       .filter((invoice) => invoice.status === 'issued' || invoice.status === 'paid')
@@ -1092,7 +1092,7 @@ export class DashboardComponent implements OnInit, OnDestroy {
   }
 
   private recomputeBuildingBalance(): void {
-    this.buildingFinanceBalance = this.openingBalance - this.latestExpensesTotal - this.unpaidTotal;
+    this.buildingFinanceBalance = this.openingBalance - this.unpaidTotal - this.unbilledExpensesTotal;
     const ratio = this.openingBalance > 0 ? (this.buildingFinanceBalance / this.openingBalance) * 100 : 0;
     this.balanceFillPercent = Math.max(0, Math.min(100, ratio));
   }
