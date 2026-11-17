@@ -5,12 +5,13 @@
   - tenants/owners must not be able to read or infer invoices, payments, measurements, or allocations for apartments they are not linked to.
 - Vote tampering and double-vote attempts:
   - only the designated voter for an apartment can vote for that apartment.
-  - there must be exactly one vote per apartment per session.
-  - votes must be changeable only until the session deadline.
+  - the voter must also be an `ApartmentUser` of that apartment, including when the caller is an administrator.
+  - there is exactly one vote per apartment per session.
+  - a second submission is rejected. Votes are not editable, including before `end_at`.
 - Unauthorized accounting writes:
   - only `administrator`/`superadmin` can enter measurements, expenses, and payments.
 - Cache poisoning / incorrect caching:
-  - Redis cached data must not be shared across apartments/users incorrectly.
+  - The API does not cache responses. Dev Compose still starts Redis, and nothing in Django reads it. Do not add a shared cache keyed only by month.
 - Retroactive edits consistency:
   - recalculation must not allow a user to “edit history” outside allowed permissions.
 
@@ -20,11 +21,12 @@ Authorization rules must always include:
 - “Is this user authorized for this apartment?”
 
 Authorization inputs:
-- `superadmin`: authorized for all apartments
-- `administrator`: authorized for all accounting operations (per business policy), even though votes remain designated-voter scoped
-- regular users: authorized only for apartments where they have an `ApartmentUser` link
+- `superadmin`: `User.role`. Authorized for all apartments, including designated-voter assignment
+- `administrator`: `User.role`. Authorized for accounting writes and voting-session management. Votes still require designated-voter membership on the target apartment. There is no `AdministratorTerm`
+- regular users: authorized only for apartments where they have an `ApartmentUser` link, plus building-scoped invoice reads when `building_scope=1`
 - voting:
-  - designated-voter enforcement uses `DesignatedVoter` record for the target apartment
+  - designated-voter enforcement uses the `DesignatedVoter` row for the target apartment
+- UI admin mode (`sessionStorage`) does not grant API access
 
 ## 3. DRF implementation guidance (conceptual)
 Use DRF patterns:
@@ -49,25 +51,21 @@ When a vote is submitted for `vote_session_id` and `apartment_id`:
   - `request.user` is linked to `apartment_id` (ApartmentUser exists)
   - `request.user` equals the designated voter user for `apartment_id`
   - session status is `active`
-  - current time is <= `vote_session.end_at`
+  - `start_at <= now <= end_at`
 
 ### 4.2 One vote per apartment per session
 Enforce at both layers:
-- Database constraint:
-  - `unique(vote_session_id, apartment_id)`
-- Application logic:
-  - upsert behavior:
-    - create if no vote exists yet
-    - update existing vote if it exists and deadline not passed
+- Database constraint: `unique(vote_session, apartment)`
+- Application logic: if a vote row already exists, return 409 and leave it unchanged
 
-### 4.3 Deadline enforcement (mandatory)
-- Voting APIs must reject modifications after `end_at`.
-- UI should also hide/edit controls based on `end_at`, but server remains source of truth.
+### 4.3 Window enforcement
+- Voting APIs reject submission unless status is `active` and `start_at <= now <= end_at`.
+- The UI hides the form outside that window. The server remains the source of truth.
 
 ## 5. Preventing cross-apartment leakage
 Hard rules for data reads:
 - Regular users:
-  - may only call invoice/stats endpoints that scope by `ApartmentUser` links
+  - may only read invoices, payments, and measurements for apartments or buildings they are linked to
 - Even if a regular user guesses an `invoiceId` or `sessionId`:
   - detail endpoints must validate apartment ownership for that object
 
@@ -76,20 +74,9 @@ Implementation requirement:
 - Always compute accessible apartment IDs from authenticated user server-side.
 
 ## 6. Measurements, expenses, and payments writes
-Only allow:
-- `administrator` and `superadmin` to create/update/delete measurement inputs, expenses, and payment entries.
+Only `administrator` and `superadmin` can create, update, or delete measurement inputs, expenses, and payments. They can write any month. A measurement date is rejected once invoices exist for that calendar month.
 
-Further policy (TBD):
-- For administrator term scoping:
-  - optionally restrict to admin term year for writes
-  - or allow admin to write for any month as long as term is active
-
-Auditing requirement:
-- log each write with:
-  - actor user id
-  - affected apartment_id(s)
-  - accounting month
-  - timestamp
+Actor tracking is `created_by_user` on measurements, expenses, payments, and vote sessions. There is no separate audit-log table. Invoice recall and payment delete are admin-only and covered by `AdminDestructiveOperationsTests`.
 
 ## 7. Invoices regeneration and consistency
 Invoice totals are derived from allocations:
@@ -100,37 +87,30 @@ Security implication:
 - regular users must never be able to trigger invoice regeneration.
 - admin regeneration must not bypass access control for apartments (admins can regenerate all; regular users cannot call that endpoint).
 
-## 8. Redis caching safety
-Caching must incorporate apartment/month keys.
-Cache invalidation:
-- When heating/heated-water inputs change:
-  - invalidate cached totals for the affected apartment(s) and month
-- When an expense item changes:
-  - invalidate cached totals for all apartments in the building for the affected month (ownership-permille based allocation touches all apartments)
-- When payments change:
-  - invalidate invoice balance caches for the affected invoice/apartment+month
-
-Never cache:
-- responses containing multiple apartment results keyed only by month if user scoping differs by apartment.
+## 8. Caching
+No response cache is implemented. If one is added later:
+- key by user scope as well as apartment and month
+- never cache a multi-apartment payload under a month-only key
+- drop keys when measurements, expenses, invoices, or payments for that month change
 
 ## 9. Security acceptance tests (recommended)
 Add tests to validate:
 - A regular user cannot retrieve an invoice for a non-linked apartment (403 or 404).
 - A non-designated user cannot submit a vote for an apartment they are linked to.
-- Submitting a second vote returns an error due to unique constraint.
-- Submitting after `end_at` is rejected.
-- Changing delegated voters impacts future voting submissions.
-- Cache keys vary by apartment/month (no cross-apartment response mixing).
+- A second vote returns 409 and does not replace the stored vote.
+- Submission outside the session window is rejected.
+- Changing the designated voter affects later submissions only. Stored votes keep `voter_user`.
+- An administrator who is not the designated voter of that apartment cannot cast its vote.
 
-## 10. Remaining open decisions
-- Vote options set and tie-break rules for administrator election.
-- Rounding policy for allocation and invoice component sums (cent rounding and remainder distribution).
-- Whether payment edits are append-only or mutable (auditing impact).
+## 10. Decisions
+- Vote options default to yes / no / abstain. A session may set `vote_options_json`. Election results do not assign a role, so there is no tie-break.
+- Allocation uses half-up cents and distributes the remainder. See `docs/03-accounting-rules.md`.
+- Payments can be deleted by an admin. They are not append-only. There is no payment edit endpoint.
 
 ## 11. Email and PDF security notes
-- Invoice and receipt PDFs contain personal/accounting data and must be access-controlled in storage.
-- Email sends must be audited per recipient (status + timestamp + error on failure).
-- Only administrator/superadmin can trigger bulk monthly invoice emails or paid-receipt re-sends.
-- Avoid exposing direct public PDF URLs; prefer time-limited signed links or attachment generation on send.
-- Locale consistency: ensure the locale used for each generated document/email is recorded (`el` for MVP), to avoid mixed-language legal/accounting artifacts per dispatch.
+- Invoice and receipt PDFs are bytes on `InvoiceDocument`, not public files.
+- Download is `GET /api/invoices/{id}/download-pdf/` and `download-receipt/`, using the same apartment scope as invoice reads.
+- Each send is a `NotificationDispatch` row (status, timestamp, error). Duplicate invoice and receipt sends are skipped unless `force=true`.
+- Only administrator and superadmin can trigger monthly invoice email or a receipt resend.
+- Invite and reset mail go through Brevo SMTP. Documents and emails are Greek.
 

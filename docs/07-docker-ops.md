@@ -1,16 +1,18 @@
 # Dockerization & Operational Setup
 
 ## 1. Target architecture (containers)
-Minimum services (local dev and production-like):
-- `redis`: caching layer for Django cache
-- `postgres`: persistent database for Django
-- `backend`: Django + DRF API (gunicorn + migrations)
-- `frontend`: Angular app
-  - dev mode: `ng serve` with live edit/watch
-  - production mode: static assets served via nginx
+Development (`docker-compose.yml`):
+- `postgres`: Django database
+- `redis`: started, unused by Django
+- `backend`: Django `runserver` on container port 8000, published as host `8001`
+- `frontend`: `ng serve` on container port 4200, published as host `8081`
 
-Optional (later):
-- `nginx` reverse proxy for TLS termination and routing (if you want HTTPS locally)
+Production (`docker-compose.prod.yml`):
+- `postgres`: private to the Compose network
+- `backend`: gunicorn, bound to `127.0.0.1:8000`
+- `frontend`: built Angular assets behind container nginx, bound to `127.0.0.1:3000`
+- no Redis
+- TLS is host nginx + Certbot, not a Compose service. See `docs/VULTR_DEPLOYMENT_GUIDE.md`
 
 ## 2. Suggested repo layout
 Proposed directories at repo root:
@@ -27,8 +29,8 @@ Also consider:
 - `./.env.example` with required environment variables
 - `./backend/entrypoint.sh` to run migrations + collectstatic
 
-## 3. `docker-compose.yml` (reference)
-Below is a reference skeleton for a “production-like” compose setup.
+## 3. Compose files
+`docker-compose.yml` is the dev stack. `docker-compose.prod.yml` is what the server runs. The skeleton below is historical and is not the production file.
 
 ```yaml
 services:
@@ -105,16 +107,11 @@ User onboarding (Django admin):
 3. If delivery fails, use admin action **«Αποστολή πρόσκλησης (νέος προσωρινός κωδικός)»**.
 4. On first login the user must set a strong password before accessing the app.
 
-Redis cache config (Django):
-- Use `django-redis` with `CACHES["default"]` pointing at `REDIS_URL`.
+Redis is present in dev Compose only. Django has no `CACHES` setting and does not read `REDIS_URL`. Production Compose does not start Redis.
 
-## 5. Frontend environment variables
-Angular typically needs:
-- `environment.apiBaseUrl` (e.g., `http://localhost:8000`)
-
-For containerized builds, prefer:
-- build-time replacement or
-- runtime config injection (TBD)
+## 5. Frontend API base URL
+Dev uses `frontend/src/app/core/api.constants.ts` (backend on port 8001).
+Production builds replace it with `api.constants.prod.ts` (same-origin `/api`). See `frontend/angular.json` file replacements.
 
 ## 6. Local development workflow (commands)
 Assuming you have Docker and Docker Compose v2 installed:
@@ -160,21 +157,13 @@ Frontend build modes:
   - frontend Dockerfile builds Angular into `dist/`
   - nginx serves static files with SPA fallback routing
 
-## 8. Cache invalidation strategy (operational notes)
-When you later implement caching/invalidation:
-- Key patterns:
-  - `invoice_totals:{apartment_id}:{month}`
-  - `stats_month:{apartment_id}:{month}`
-  - `session_results:{session_id}`
-- Invalidate:
-  - on heating/heated-water input edits: affected apartment + month keys
-  - on expense edits: all apartments for affected month (since allocations use ownership permille)
-  - on payment insert: invoice balance keys for that invoice
+## 8. Caching and jobs
+Invoice generation, PDF build, and email send run inside the request. There is no Celery worker and no Django cache. Redis in the dev Compose file can be ignored.
 
-Decide whether recalculation is synchronous (simpler, potentially slower) or via background tasks (e.g. Celery; optional, not in current scope).
+If a cache is added, key it by user scope plus apartment and month. See `docs/06-security-model.md`.
 
-## 9. Open operational decisions (TBD)
-- Are you okay with “invoice regeneration is synchronous” (request waits) or do you want background jobs?
-- Should payments be editable or append-only for audit safety?
-- Do you want nginx reverse-proxy with TLS for local HTTPS?
+## 9. Operational decisions
+- Invoice regeneration is synchronous.
+- Admins can delete a payment. There is no payment edit API.
+- Production TLS is host nginx + Certbot. Local Compose stays on HTTP.
 

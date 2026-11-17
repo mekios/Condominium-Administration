@@ -1,319 +1,140 @@
-# Block-of-Flats Admin: API Specification (Django REST Framework)
+# Block-of-Flats Admin: API Specification
 
-## 1. Overview
-The backend exposes a JSON REST API consumed by the Angular frontend.
+Base path: `/api/`. JSON. Auth header: `Authorization: Bearer <access>`.
 
-Design principles:
-- Apartment-scoped data access for all accounting and voting resources.
-- Deterministic invoice computation from stored inputs.
-- Redis caching for computed month stats and invoice totals (cache keys include apartment and month).
-- All vote submissions are validated against the designated voter and “one vote per apartment per session” constraints.
-- MVP localization policy: Greek (`el`) is the default output locale for API-rendered templates (emails/PDF payload metadata). API is designed for later English (`en`) support.
+Greek (`el`) is the language of API error text, PDFs, and emails. `User.preferred_language` exists for a later English locale. Responses are not translated.
 
-## 2. Authentication
-TBD in implementation; for now assume:
-- Users authenticate using JWT.
-- `Authorization: Bearer <token>` is required for all `/api/` endpoints except login/refresh.
+Redis caching described in older drafts is not implemented.
 
-## 3. Permission matrix (who can do what)
+## 1. Authentication
 
-Terminology:
-- “Linked apartment” means `request.user` has an `ApartmentUser` link for that apartment.
-- “Designated voter” means `request.user` matches the `DesignatedVoter` user for a target apartment.
-- “Administrator” means the user has an active `AdministratorTerm` for the current year/term (exact term-window rules TBD).
+| Method | Path | Auth | Behavior |
+|---|---|---|---|
+| POST | `/api/token/` | public | JWT access + refresh (`username`, `password`) |
+| POST | `/api/token/refresh/` | public | New access token |
+| GET, PATCH | `/api/me/` | user | Profile. PATCH updates name, email, preferred language, or password |
+| POST | `/api/me/set-password/` | user | First-login password. Clears `must_change_password` |
+| POST | `/api/auth/forgot-password/` | public | Emails a reset link when the account exists |
+| POST | `/api/auth/reset-password/` | public | Consumes the reset token |
 
-Permissions:
-- `superadmin`
-  - Manage: users, apartment-user links, apartment ownership permille, designated voters
-  - Create: elections and motions
-  - Enter: heating/heated-water inputs, expenses, payments
-  - Generate/regenerate invoices
-  - Can view all apartments’ data
-- `administrator`
-  - Create: motions (and administrative election sessions via policy)
-  - Enter: measurements, expenses, payments
-  - Generate/regenerate invoices
-  - View all apartments’ accounting data (but voting submission still uses designated voter constraints)
-  - Can view all votes for sessions they manage (or all sessions; choose one)
-- tenant/owner (regular user)
-  - Read: invoices, invoice balances, and month stats only for linked apartments
-  - Vote: only as designated voter for each apartment (one vote per session)
-  - Cannot read or mutate measurements/expenses/payments for other apartments
+Invites are not a REST endpoint. Django admin creates the user and sends a temporary password (`accounts.invite`).
 
-### 3.1 Apartment list scoping
-- `GET /apartments/` returns only apartments linked to the current user (`ApartmentUser` membership).
-- `GET /apartments/?all=1` returns all building apartments for `superadmin` and `administrator` only (used by management screens).
+## 2. Who can do what
 
-### 3.2 Frontend admin mode (UI policy)
-- `superadmin`: management write controls are always visible in the UI.
-- `administrator`: management write controls (measurements, expenses, invoices, payments, voting setup) are shown only after the user toggles **Λειτουργία διαχειριστή** in the app shell.
-- Admin mode state is stored in browser `sessionStorage` and does not change backend authorization (API still checks role server-side).
+- `superadmin`: all reads and writes below, plus designated-voter assignment.
+- `administrator`: the same accounting and voting writes. Cannot set the designated voter.
+- `user`: linked apartments only, plus building-scoped invoice reads when `building_scope=1`. Vote only as designated voter of a linked apartment.
 
-## 4. Common query conventions
-- Apartment scoping:
-  - List endpoints return only items accessible to the user.
-  - For “read invoice” endpoints, the server filters by linked apartments.
-- Month scoping:
-  - `month` is typically a `YYYY-MM` string.
+Frontend **Λειτουργία διαχειριστή** does not change these checks.
 
-## 5. Resources and endpoints
+## 3. Buildings and apartments
 
-### 5.1 Users and apartments (superadmin only)
-Base: `/api/`
+| Method | Path | Who |
+|---|---|---|
+| GET | `/api/buildings/` | authenticated |
+| GET | `/api/buildings/{id}/` | authenticated |
+| PATCH | `/api/buildings/{id}/` | admin. Body may set `fund_balance` |
+| GET | `/api/apartments/` | linked apartments. `?all=1` returns every apartment for admin roles |
+| GET | `/api/apartments/{id}/` | same scope |
+| PATCH | `/api/apartments/{id}/heating-factors/` | admin. Body: `heating_e_factor`, `heating_f_factor` |
+| PUT | `/api/apartments/{id}/designated-voter/` | superadmin. Body: `{ "voter_user_id": 123 }`. Voter must be a member |
 
-1. `GET /users/` (superadmin)
-2. `POST /users/` (superadmin)
-3. `PATCH /users/{userId}/` (superadmin)
-4. `GET /apartments/` (superadmin)
-5. `POST /apartments/` (superadmin)
-6. `PATCH /apartments/{apartmentId}/` (superadmin)
-   - includes `ownership_permille`
+Creating users, apartments, and memberships is Django admin (`/admin/`), not these routes.
 
-Apartment-user links:
-1. `GET /apartments/{apartmentId}/members/` (superadmin)
-2. `POST /apartments/{apartmentId}/members/` (superadmin)
-3. `PATCH /apartments/{apartmentId}/members/{userId}/` (superadmin)
-   - includes `is_owner`, `is_tenant`
+## 4. Measurements
 
-Designated voter:
-1. `PUT /apartments/{apartmentId}/designated-voter/` (superadmin)
-   - body: `{ "voter_user_id": 123 }`
-   - acceptance: designated voter must be a member of that apartment
+Workflow (the UI uses these):
 
-### 5.2 Accounting: measurements
+| Method | Path | Who | Notes |
+|---|---|---|---|
+| GET | `/api/accounting/heating-inputs/dates/` | authenticated (building scope) | Date list and coverage |
+| GET | `/api/accounting/heating-inputs/building-hot-water/` | same | Boiler `hot_water_heating_units` per measurement date |
+| GET | `/api/accounting/heating-inputs/date-detail/?measurement_date=YYYY-MM-DD` | same | Apartment rows for that date |
+| GET | `/api/accounting/heating-inputs/entry-form/` | same | Previous readings for the next entry. Optional date query |
+| POST | `/api/accounting/heating-inputs/monthly-upsert/` | admin | One date, all apartment rows, plus the boiler reading |
+| DELETE | `/api/accounting/heating-inputs/by-date/?measurement_date=YYYY-MM-DD` | admin | Deletes heating, hot water, and boiler rows for that date. Rejected when invoices exist for that month |
 
-Primary monthly workflow endpoints:
-1. `GET /accounting/heating-inputs/months/`
-   - returns month summary list:
-     - `{ items: [{ month, heating_entries, heated_water_entries, apartments_total }], suggested_next_month }`
-2. `GET /accounting/heating-inputs/month-detail/?month=YYYY-MM`
-   - returns apartment rows for the selected month including:
-     - previous/current readings and computed unit deltas for both commodities
-3. `GET /accounting/heating-inputs/entry-form/?month=YYYY-MM` (month optional)
-   - returns entry rows for all visible apartments and previous readings
-   - if `month` is missing, backend chooses next month after latest available data
-4. `POST /accounting/heating-inputs/monthly-upsert/` (administrator, superadmin)
-   - body (example):
-     - `{
-         "measurement_date": "2026-08-01",
-         "rows": [
-           { "apartment_id": 10, "heating_current_reading": "120.5", "heated_water_current_reading": "44.0" }
-         ]
-       }`
-   - backend computes:
-     - `heating_units_counted = heating_current_reading - previous_heating_reading`
-     - `computed_heating_water_volume = heated_water_current_reading - previous_heated_water_reading`
-   - negative deltas are rejected with validation error
-   - `e_factor`/`f_factor` are copied from apartment master data snapshots (not entered monthly in UI)
+`monthly-upsert` body:
 
-Low-level/legacy endpoints (still available for internal/admin use):
-- `GET|POST|PATCH|DELETE /accounting/heating-inputs/` (DELETE: administrator, superadmin)
-- `GET|POST|PATCH|DELETE /accounting/heated-water-inputs/` (DELETE: administrator, superadmin)
-- `DELETE /accounting/heating-inputs/by-date/?measurement_date=YYYY-MM-DD` (administrator, superadmin)
-  - deletes all heating and heated-water rows for that measurement date across visible building apartments
-  - rejected when invoices for that calendar month have recorded payments
-- `POST /accounting/heating-inputs/bulk-upsert/`
-- `POST /accounting/heated-water-inputs/bulk-upsert/`
-
-Server behavior:
-- Persist monthly readings and computed unit deltas.
-- For radiator heating allocations, apply:
-  - `((fi * ei) + (UnitsCounted / SumOfUnitsCounted) * (1 - Sum(fi * ei))) * gas_radiator_amount`
-- Mark affected month as dirty for invoice recalculation.
-
-### 5.3 Accounting: expenses
-
-1. `GET /accounting/expenses/?month=YYYY-MM`
-   - admin/superadmin see all; regular users either have read-only aggregated stats or none (choose based on UI needs)
-2. `POST /accounting/expenses/` (administrator, superadmin)
-   - body:
-     - `{ "expense_category": "cleaning", "expense_date": "2026-03-15", "amount": "123.45", "description": "..." }`
-     - for `gas_heating_bill` and `water_consumption_bill`, include:
-       - `"affected_period_start": "2026-02-01"`
-       - `"affected_period_end": "2026-03-01"`
-3. `PATCH /accounting/expenses/{expenseId}/` (administrator, superadmin)
-4. `DELETE /accounting/expenses/{expenseId}/` (administrator, superadmin)
-
-Allocation:
-- On create/update of an expense item, system recomputes allocated expenses per apartment for its accounting month.
-
-- Allocation depends on `expense_category`:
-  - `gas_heating_bill`:
-    - admin declares `affected_period_start` / `affected_period_end`
-    - split into radiator-heating vs heated-water-energy parts using energy percentages derived from measurements that overlap the affected range
-    - allocate radiator-heating part by radiator-heating energy share
-    - allocate heated-water-energy part by heating-water volume share
-  - `water_consumption_bill`:
-    - admin declares `affected_period_start` / `affected_period_end`
-    - allocate to apartments by heating-water volume share from measurements that overlap the affected range
-  - all other common recurring and non-recurring categories:
-    - allocate by apartment ownership permille
-
-### 5.4 Accounting: invoices and balances (read for tenants/owners)
-
-1. `GET /invoices/?month=YYYY-MM`
-   - regular users: only invoices for linked apartments
-   - admin/superadmin: all invoices for that month
-2. `GET /invoices/{invoiceId}/`
-   - must verify apartment scoping
-
-Invoice generation/regeneration:
-1. `POST /invoices/generate/` (administrator, superadmin)
-   - body: `{ "month": "2026-03" }`
-   - behavior:
-     - compute all components (radiator heating, heated-water energy, water consumption, common/non-recurring allocations) for that month
-     - create/update invoices for all apartments in building
-2. `GET /invoices/preview/?month=YYYY-MM` (administrator, superadmin)
-   - behavior:
-     - returns per-apartment draft component totals without persisting invoices
-     - used by expenses UI for live "draft billing" preview while entering expenses
-3. `POST /invoices/{invoiceId}/mark-paid/` (administrator, superadmin)
-   - body (optional amount means "pay full outstanding"):
-     - `{ "amount": "120.00", "payment_date": "2026-05-20", "method": "bank_transfer", "reference": "TX123", "notes": "..." }`
-   - behavior:
-     - creates payment record
-     - updates `paid_total`, `outstanding_balance`, `status` (`paid` when balance reaches `0`)
-     - generates receipt PDF and stores it
-     - dispatches receipt email to apartment members with emails
-4. `POST /invoices/{invoiceId}/send-receipt/` (administrator, superadmin)
-   - body:
-     - `{ "payment_id": 10, "force": false }`
-   - behavior:
-     - sends stored/generated receipt again
-     - duplicate protection: returns conflict unless `force=true`
-5. `POST /invoices/{invoiceId}/recall/` (administrator, superadmin)
-   - body: `{ "confirm": true }` (required)
-   - behavior:
-     - deletes the invoice and cascades associated payments and stored PDF documents
-     - invoice can be recreated later via `POST /invoices/generate/`
-
-### 5.5 Accounting: payments
-1. `GET /accounting/payments/?month=YYYY-MM`
-   - admin/superadmin: all payments
-   - regular users: only payments for linked apartments
-2. `POST /accounting/payments/` (administrator, superadmin)
-   - body:
-     - `{ "invoice": 12, "amount": "50.00", "payment_date": "2026-05-20", "method": "cash", "reference": "..." }`
-   - behavior:
-     - records payment and updates invoice outstanding
-     - generates/stores receipt PDF
-     - sends receipt email and tracks dispatch status
-3. `DELETE /accounting/payments/{paymentId}/` (administrator, superadmin)
-   - behavior:
-     - removes the payment and recalculates invoice `paid_total`, `outstanding_balance`, and `status`
-     - deletes linked receipt PDF documents for that payment
-2. `POST /invoices/{apartmentId}/regenerate/` (administrator, superadmin) (optional)
-   - if you want per-apartment regeneration
-3. `POST /invoices/send-monthly-email/` (administrator, superadmin)
-   - body: `{ "month": "2026-03" }`
-   - behavior:
-     - generate/ensure per-apartment invoice PDFs
-     - send one email per apartment with totals + invoice PDF attachment (Greek for MVP)
-     - track dispatch status per recipient
-
-### 5.5 Payments (admin write, user read)
-
-1. `GET /invoices/{invoiceId}/payments/`
-   - regular users can view payments for invoices they can access
-2. `POST /invoices/{invoiceId}/payments/` (administrator, superadmin)
-   - body:
-     - `{ "payment_date": "2026-03-25", "amount": "50.00", "reference": "..." }`
-3. `POST /invoices/{invoiceId}/mark-paid/` (administrator, superadmin)
-   - behavior:
-     - mark invoice status as paid (if outstanding is `0`)
-     - generate receipt PDF (Greek for MVP)
-     - send automated receipt email with PDF attachment to apartment recipients (Greek for MVP)
-     - create dispatch audit log
-
-### 5.6 Stats endpoints (optional but recommended)
-1. `GET /stats/monthly/?month=YYYY-MM`
-   - regular users: returns per-month summary for each linked apartment
-   - uses Redis caching for computed totals
-
-### 5.7 Voting
-
-Vote sessions (motions + elections):
-1. `GET /voting/sessions/` (regular users, admin, superadmin)
-   - returns sessions visible to the user (for regular users: sessions for building; still enforce voting participation rules)
-2. `GET /voting/sessions/{sessionId}/` (read)
-
-Create/manage sessions:
-3. `POST /voting/sessions/` (administrator, superadmin)
-   - body:
-     - `{ "session_type": "motion", "title": "...", "description": "...", "start_at": "...", "end_at": "..." }`
-4. `PATCH /voting/sessions/{sessionId}/` (administrator, superadmin)
-   - allow transitioning status: draft->active->closed (policy TBD)
-
-Voting:
-5. `GET /voting/sessions/{sessionId}/votes/` (regular users, admin)
-   - regular users: returns only their linked apartments votes
-   - admin: may return all votes (audit view)
-6. `POST /voting/sessions/{sessionId}/votes/` (designated voter only)
-   - body:
-     - `{ "apartment_id": 10, "vote_value": "yes" }`
-   - server checks:
-     - user has ApartmentUser link for `apartment_id`
-     - user is the designated voter for that apartment
-     - session is active and `now <= end_at`
-     - `unique(session_id, apartment_id)` constraint ensures one vote
-7. `PUT /voting/sessions/{sessionId}/votes/{apartmentId}/` (optional for explicit update)
-
-Server behavior for vote changes:
-- Because a vote can be changed until deadline, update existing `Vote` row for that `(session_id, apartment_id)`.
-
-Results:
-8. `GET /voting/sessions/{sessionId}/results/`
-   - returns aggregated counts after session ends
-
-## 6. Request/response shapes (representative examples)
-
-### 6.1 Invoice (representative JSON)
 ```json
 {
-  "id": 555,
-  "apartment_id": 10,
-  "month": "2026-03",
-  "heating_radiators_total": "120.00",
-  "heated_water_energy_total": "45.50",
-  "water_consumption_total": "18.00",
-  "common_recurring_total": "210.10",
-  "common_non_recurring_total": "30.00",
-  "invoice_total": "405.60",
-  "status": "issued",
-  "paid_total": "100.00",
-  "outstanding_balance": "305.60"
+  "measurement_date": "2026-08-01",
+  "hot_water_heating_current_reading": "1500.0",
+  "rows": [
+    { "apartment_id": 10, "heating_current_reading": "120.5", "heated_water_current_reading": "44.0" }
+  ]
 }
 ```
 
-### 6.2 Vote submission (designated voter)
-```json
-{
-  "apartment_id": 10,
-  "vote_value": "yes"
-}
-```
+The server computes unit deltas and copies `e_factor` / `f_factor` from the apartment. Negative deltas return 400.
 
-## 7. Validation and invariants (must-have)
-- Vote invariants:
-  - Exactly one vote per apartment per session: enforced by database unique constraint.
-  - Voting authorization:
-    - server must verify designated voter before accepting a vote.
-  - Deadline enforcement:
-    - server must check session `end_at` at time of submission.
-- Apartment scoping invariants:
-  - list and detail endpoints must never leak data for apartments not linked to the user.
-- Allocation determinism:
-  - invoice generation must be based on stored inputs and deterministic rounding rules.
+Low-level routes still exist for heating and heated-water viewsets: list, create, partial update, destroy, and `POST .../bulk-upsert/`. Deletes are admin-only.
 
-## 8. Redis caching (where it applies)
-- Cache computed monthly invoice totals and stats:
-  - key pattern examples:
-    - `invoice_totals:{apartment_id}:{month}`
-    - `stats_month:{apartment_id}:{month}`
-    - `session_results:{session_id}`
-- Invalidation:
-  - after updates to heating/heated-water inputs or expenses for month `m`, invalidate keys for that month and apartments.
-  - after payment insert, invalidate invoice balance caches for that invoice.
+## 5. Expenses
 
-Cache invalidation strategy is TBD (sync recompute vs async job + invalidate).
+| Method | Path | Who |
+|---|---|---|
+| GET | `/api/accounting/expenses/?month=YYYY-MM` | admin: all. Resident: building expenses for linked buildings |
+| POST | `/api/accounting/expenses/` | admin |
+| PATCH | `/api/accounting/expenses/{id}/` | admin |
+| DELETE | `/api/accounting/expenses/{id}/` | admin |
 
+Create body: `expense_category`, `expense_date`, `amount`, optional `description`. Gas and hot-water bills also send `affected_period_start` and `affected_period_end`.
+
+`fund_increase` updates `Building.fund_balance` inside the same transaction. Category rules are in `docs/03-accounting-rules.md`.
+
+## 6. Invoices
+
+| Method | Path | Who | Behavior |
+|---|---|---|---|
+| GET | `/api/invoices/?month=YYYY-MM` | scoped | Admin: all. Resident: linked apartments. `personal_scope=1` forces linked apartments. `building_scope=1` returns the caller’s buildings |
+| GET | `/api/invoices/{id}/` | scoped | One invoice |
+| GET | `/api/invoices/preview/?month=YYYY-MM` | admin | Draft rows, not saved |
+| GET | `/api/invoices/analysis-share/?month=YYYY-MM` | authenticated | Each apartment’s share of that month’s invoice totals |
+| POST | `/api/invoices/generate/` | admin | Create or update the month. Optional `adjustments`: `[{ "apartment_id", "custom_adjustment", "custom_adjustment_note" }]` |
+| POST | `/api/invoices/send-monthly-invoices/` | admin | Body `{ "month", "force": false }`. PDF attached. Duplicate sends are `skipped` unless `force` is true |
+| POST | `/api/invoices/retry-failed-notifications/` | admin | Optional `month`, `notification_type`, `dispatch_id` |
+| POST | `/api/invoices/{id}/mark-paid/` | admin | Optional amount pays the outstanding balance. Writes a payment, receipt PDF, and receipt email |
+| POST | `/api/invoices/{id}/send-receipt/` | admin | Body `{ "payment_id", "force": false }` |
+| GET | `/api/invoices/{id}/download-pdf/` | scoped | Invoice PDF attachment |
+| GET | `/api/invoices/{id}/download-receipt/` | scoped | Latest receipt PDF |
+| POST | `/api/invoices/recall-month/` | admin | Body `{ "month", "confirm": true }`. Deletes that month’s invoices, payments, and documents |
+
+Generate response includes `month`, `created`, `updated`, and `warnings`.
+
+There is no per-invoice `POST /recall/`, no `/payments/` nested under an invoice, and no `/stats/monthly/`.
+
+Representative invoice fields: `heating_radiators_total`, `heated_water_energy_total`, `water_consumption_total`, `common_recurring_total`, `common_non_recurring_total`, `owners_only_total`, `custom_adjustment`, `custom_adjustment_note`, `invoice_total`, `paid_total`, `outstanding_balance`, `status` (`draft` | `issued` | `paid`).
+
+## 7. Payments
+
+| Method | Path | Who |
+|---|---|---|
+| GET | `/api/accounting/payments/?month=YYYY-MM` | admin: all. Resident: linked apartments |
+| POST | `/api/accounting/payments/` | admin. Body: `invoice`, `amount`, `payment_date`, `method`, optional `reference`, `notes` |
+| DELETE | `/api/accounting/payments/{id}/` | admin. Recalculates the invoice and deletes that payment’s receipt documents |
+
+`method`: `cash`, `bank_transfer`, `card`, `other`.
+
+## 8. Voting
+
+| Method | Path | Who |
+|---|---|---|
+| GET, POST | `/api/voting/sessions/` | GET: sessions in the caller’s buildings (admin: all). POST: admin |
+| GET, PATCH, PUT, DELETE | `/api/voting/sessions/{id}/` | writes: admin |
+| GET, POST | `/api/voting/sessions/{id}/votes/` | GET is scoped. POST body `{ "apartment_id", "vote_value" }` |
+| GET | `/api/voting/sessions/{id}/results/` | counts after the session is closed |
+
+Vote checks:
+- Caller is an `ApartmentUser` and the `DesignatedVoter` for that apartment.
+- Session `status` is `active` and `now` is inside `start_at`..`end_at`.
+- `vote_value` matches `vote_options_json`, or `yes` / `no` / `abstain` when that list is empty.
+- A second vote for the same apartment returns 409. Votes are not updated in place.
+
+Session create fields: `building`, `session_type` (`motion` | `administrator_election`), `title`, `description`, `vote_options_json`, `start_at`, `end_at`, `status`.
+
+## 9. Invariants
+- `unique(vote_session, apartment)` and `unique(apartment, month)` on invoices.
+- `unique(apartment, measurement_date)` on heating and hot-water rows. `unique(building, measurement_date)` on boiler rows.
+- List and detail querysets are filtered from the authenticated user. Client-supplied apartment ids are not trusted for authorization.
+- Invoice math uses the stored inputs and the rounding in `docs/03-accounting-rules.md`.

@@ -1,206 +1,106 @@
 # Block-of-Flats Admin: Accounting Rules
 
-## 1. Accounting period (monthly)
-- Each month is an accounting bucket identified by `YYYY-MM` (e.g., `2026-03`).
-- Inputs are assigned to a month by their date:
-  - `HeatingMeasurementInput` month: explicit monthly entry (`YYYY-MM`) from admin form.
-  - `HeatedWaterMeasurementInput` month: explicit monthly entry (`YYYY-MM`) from admin form.
-  - `ExpenseItem` month: derived from `expense_date`.
-  - `Invoice` month: one invoice per apartment per accounting month.
+Rules below match `backend/flats/views.py` (`_calculate_invoice_rows`, `_allocate_amount_by_weights`) and the dashboard balance in `frontend/src/app/features/dashboard.component.ts`.
 
-Retroactivity:
-- The system supports unplanned and retroactive entries.
-- If an admin edits measurements or expenses for a past month, the system recalculates allocated usage and updates invoice computed totals accordingly.
+## 1. Accounting period
+- An invoice month is `YYYY-MM`.
+- An expense’s month is `expense_date` formatted as `YYYY-MM`.
+- Heating, hot water, and boiler rows are stored by `measurement_date`. Invoice generation pulls the readings that apply to the expense’s affected period, or to that month when the period is empty.
+- Regenerating a month (`POST /api/invoices/generate/`) overwrites component totals. Existing payments stay and outstanding balance is recomputed. A `custom_adjustment` already stored on the invoice is kept unless the request sends a new `adjustments` list.
 
-## 2. Determinism and recalculation
-For any given accounting month:
-- Heating totals come from stored heating measurement inputs (plus your thermal-factor formula).
-- Heated water totals come from stored heated-water measurement inputs (plus your distribution algorithm).
-- Common/non-recurring expense allocations come from stored expense items and apartment ownership permille.
-- Invoice totals are computed as:
-  - `invoice_total = radiator_heating_amount + heated_water_energy_amount + water_consumption_amount + allocated_expenses_total`
-  - Payment settlement is computed independently:
-    - `outstanding = invoice_total - sum(payments.amount)`
+## 2. Reading deltas
+For each apartment, the admin enters the current heating reading and the current hot-water reading. The boiler row is the building hot-water heating reading.
 
-Audit:
-- The system should record:
-  - which user edited which inputs (`created_by_user_id`)
-  - when invoices were generated/regenerated (`issued_at`, `computed_at`)
-  - a recomputation version (`allocation_version`) so you can reproduce the invoice later.
+- `units_counted = current_heating_reading − previous_heating_reading`
+- `computed_heating_water_volume = current_hot_water_reading − previous_hot_water_reading`
+- `hot_water_heating_units = current_boiler_reading − previous_boiler_reading`
 
-## 2.1 Reading-based monthly units
-For each apartment and month:
-- Admin enters **current readings** for:
-  - heating meter
-  - heated-water meter
-- System derives units by difference from previous month:
-  - `heating_units_counted = heating_current_reading(m) - heating_current_reading(m-1)`
-  - `heated_water_volume = heated_water_current_reading(m) - heated_water_current_reading(m-1)`
-- Validation:
-  - negative deltas are rejected as invalid input
-  - if no previous reading exists, previous value defaults to `0` (bootstrap month)
+Negative deltas are rejected. If there is no previous reading, the previous value is 0. `e_factor` and `f_factor` are copied from the apartment. They are not typed on the monthly form.
 
-## 3. Gas bill split: radiators vs heating water
-Inputs:
-- For each apartment `a`, system uses:
-  - `e_a` (factor `ei`)
-  - `f_a` (factor `fi`)
-  - `units_counted_a` (`UnitsCounted`, derived from reading delta)
-- For the building boiler (central calorimeter for heating water), stored in `BuildingMeasurementInput`:
-  - `building_hw_units` = delta of `hot_water_heating_current_reading` over the billing period (same boundary logic as apartments when `affected_period_start/end` are set)
-- For the billing period:
-  - `sum_heating_units = sum(units_counted_a for all apartments)`
-  - `total_energy = sum_heating_units + building_hw_units`
-  - `gas_total` = single expense in category `gas_heating_bill` («Φυσικό αέριο (συνολικό)») for the month
+Once any invoice exists for that calendar month, the measurement date is locked.
 
-Split of the single gas bill:
+## 3. Money rounding
+Amounts are quantized to 0.01 with half-up (`q2`).
+
+Shared amounts (ownership or volume) are split by weight, each share quantized to cents, then the cent remainder is walked across apartments so the shares sum to the expense amount.
+
+## 4. Gas bill
+One expense category: `gas_heating_bill` («Φυσικό αέριο (συνολικό)»).
+
+`gas_hw_consumption_bill` is legacy. Invoice generation fails if that category is present, including when it is combined with `gas_heating_bill`.
+
+For the billing period:
+- `sum_heating_units` = sum of apartment `units_counted`
+- `building_hw_units` = boiler `hot_water_heating_units`
+- `total_energy = sum_heating_units + building_hw_units`
 - `gas_radiator_amount = gas_total × sum_heating_units / total_energy`
 - `gas_hw_amount = gas_total × building_hw_units / total_energy`
 
-Apartment radiator-heating formula (exact, applied to `gas_radiator_amount`):
-- Let:
-  - `fixed_component_a = f_a * e_a`
-  - `sum_fixed = sum(f_i * e_i for all apartments)`
-  - `variable_component_a = (units_counted_a / sum_units_counted) * (1 - sum_fixed)`
-- Then:
-  - `radiator_share_a = fixed_component_a + variable_component_a`
-  - `radiator_heating_amount(a) = radiator_share_a * gas_radiator_amount`
+If `total_energy` is 0, generation is blocked. If there is no gas expense, both heating components are 0.
 
-Equivalent compact form (your formula):
-- `((f_a * e_a) + (units_counted_a / sum_units_counted) * (1 - sum(f_i * e_i))) * gas_radiator_amount = amount_apartment_must_pay`
+Radiator share for apartment `a` (applied to `gas_radiator_amount`):
 
-Heating-water gas portion allocation:
-- `heated_water_energy_amount(a) = gas_hw_amount * (V_apartment / sum(V_apartment))`
-- where `V_apartment` is the heating-water volume computed in section 4.
+`((f_a × e_a) + (units_counted_a / sum_units_counted) × (1 − Σ(f_i × e_i))) × gas_radiator_amount`
 
-Policy:
-- Use **one** gas expense category (`gas_heating_bill`) per billing period; the legacy `gas_hw_consumption_bill` category is deprecated and must not be combined with the combined gas bill for the same period.
-- If `total_energy == 0`, invoice generation is blocked.
+`sum(f_i × e_i)` must be between 0 and 1.
 
-Implementation guidance (to make this deterministic):
-- Store both:
-  - the inputs used to compute `radiator_share_a` (`e_a`, `f_a`, `units_counted_a`)
-  - the computed result `radiator_heating_amount(a)`
-- Store billing-period aggregate snapshots used during calculation:
-  - `sum_heating_units`
-  - `building_hw_units`
-  - `sum_fixed`
-  - `gas_radiator_amount`
-  - `gas_hw_amount`
+Hot-water gas share:
 
-Edge case: missing expenses
-- If `gas_total` is missing for a month, then both `radiator_heating_amount` and `heated_water_energy_amount` for that month are `0` even though measurements still exist.
+`heated_water_energy_amount(a) = gas_hw_amount × (V_a / Σ V)`
 
-## 4. Water types and allocation rules
-There are 2 different water expense types:
-- Garden water (`common_water_usage`)
-  - Allocated by apartment ownership permille (`ownership_permille / 1000`).
-- Heater water (`water_consumption_bill`)
-  - Allocated by measured heated-water volume (`V_apartment / sum(V_apartment)`).
+`V_a` is `computed_heating_water_volume`.
 
-## 4.1 Heating-water volume allocations (heater water bill)
-Inputs:
-- For each apartment `a`, admin provides monthly heated-water **current reading**.
-- System derives:
-  - `V_apartment = heated_water_current_reading(m) - heated_water_current_reading(m-1)`
+## 5. Hot-water consumption bill
+Category `water_hw_consumption_bill` («Κατανάλωση ζεστού νερού»).
 
-Implementation guidance:
-- Store both:
-  - `current_reading`
-  - `computed_heating_water_volume` result (`V_apartment`)
+`water_consumption_amount(a) = bill × (V_a / Σ V)`
 
-Heater water bill splitting:
-- Let:
-  - `water_consumption_total` = total water-consumption bill amount for the month (may be missing for a given month)
-- Then:
-  - `water_consumption_amount(a) = water_consumption_total * (V_apartment / sum(V_apartment))`
+If the bill is missing, the component is 0. Garden water is not this bill. Garden water is `common_water_usage` and follows ownership permille.
 
-Edge case: missing expenses
-- If `water_consumption_total` is missing for a month, then `water_consumption_amount` is `0` even though `V_apartment` exists from measurements.
+## 6. Ownership allocation
+`p_a = ownership_permille(a) / 1000`, then the cent-remainder rule in section 3.
 
-## 5. Common expenses allocation (ownership-permille based)
-Expense categories (initial list):
-- common recurring:
-  - `gardener`
-  - `common_power_usage`
-  - `common_water_usage` (garden water)
-  - `cleaning`
-  - `elevator_service`
-- non-recurring:
-  - `damages`
-  - `annual_servicing`
-- owners only:
-  - `owners_only` — Expenses paid only by owners, not tenants (structural damages, core equipment fixes, facade changes, new machinery). Allocated by ownership permille. Shown as separate line on invoice so owners know not to pass to tenants.
-  - `fund_increase` — Owner contribution to the building reserve. Increases `building.fund_balance` when recorded, and is allocated to apartments by ownership permille into `owners_only_total` on the invoice (not passed to tenants).
+| Bucket | Categories |
+|---|---|
+| `common_recurring_total` | `gardener`, `common_power_usage`, `common_water_usage`, `cleaning`, `elevator_service` |
+| `common_non_recurring_total` | `damages`, `annual_servicing`, `other` |
+| `owners_only_total` | `owners_only`, `fund_increase` |
 
-Default allocation rule:
-1. Compute each apartment’s ownership fraction:
-   - For apartment `a`:
-     - `p_a = ownership_permille(a) / 1000`
-   - You should ensure:
-     - `sum(p_a for all apartments) = 1.0` (or very close due to rounding).
-2. For each expense item `E` belonging to accounting month `m`:
-   - `allocated_amount(a, E) = E.amount * p_a`
-3. For each invoice/month/apartment, sum allocations:
-   - `allocated_expenses_total(a, m) = sum(allocated_amount(a, E) for E in month m)`
+`owners_only` is the owner line (not passed on to tenants). `fund_increase` uses the same invoice line and also adds `amount` to `Building.fund_balance`. Editing or deleting that expense reverses the previous fund delta.
 
-Rounding policy:
-- Currency should be stored and computed in minor units (e.g., cents) or with a consistent decimal precision.
-- Because `E.amount * p_a` may not be an integer in minor units:
-  - choose a deterministic rounding strategy:
-    - round each apartment allocation to cents
-    - adjust the last apartment allocation by the rounding remainder (to ensure sum equals total expense)
-- This rule must be consistent across recalculations.
+## 7. Invoice total
+For apartment `a` and month `m`:
 
-Default handling of non-recurring:
-- Until you specify otherwise, non-recurring categories are allocated using the same ownership-permille rule as common expenses.
+`computed = heating_radiators_total + heated_water_energy_total + water_consumption_total + common_recurring_total + common_non_recurring_total + owners_only_total`
 
-## 6. Invoice component breakdown
-For each apartment `a` and month `m`, the invoice component totals are:
-- `radiator_heating_amount(a, m)` = computed from radiator heating + gas bill split
-- `heated_water_energy_amount(a, m)` = computed from gas bill split + heating-water volume shares
-- `water_consumption_amount(a, m)` = computed from water consumption bill + heating-water volume shares
-- `allocated_expenses_total(a, m)`:
-  - common recurring categories total
-  - plus non-recurring/incident categories total
-  - plus owners-only categories total (separate line: not to be passed to tenants)
-- `invoice_total(a, m)`:
-  - `invoice_total = radiator_heating_amount + heated_water_energy_amount + water_consumption_amount + allocated_expenses_total`
+`invoice_total = computed + custom_adjustment`
 
-## 7. Payments and settlement
-Payments are appended (or editable, TBD) and invoice outstanding balance is:
-- `balance(a, m) = invoice_total(a, m) - sum(payments.amount for invoice(a, m))`
+`custom_adjustment` is an optional per-apartment amount with `custom_adjustment_note`, sent as `adjustments` on generate. It is not an expense category.
 
-Payment effects:
-- Payment entry does not change invoice computed totals.
-- If invoice totals are recalculated due to edited inputs, outstanding balance should reflect the new invoice_total minus existing payments.
+`outstanding_balance = invoice_total − paid_total`
 
-## 8. Validation rules (required for correctness)
-- Ownership validation:
-  - if ownership permille values are inconsistent (sum deviates from 1000 permille), the system should:
-    - either block invoice generation or
-    - generate with warnings and show “ownership normalization” behaviour (TBD).
-- Completeness validation:
-  - For a given month:
-    - admin monthly entry form should contain one row per apartment with both commodities.
-    - for missing apartment row values, invoice generation behavior is policy-based:
-      - either block generation for that month, or
-      - treat missing values as zero snapshot (current implementation: missing rows behave as zero allocation).
-  - Separately, missing expense items are allowed:
-    - if `gas_heating_bill` is absent, `radiator_heating_amount` and `heated_water_energy_amount` are `0`
-    - if `water_consumption_bill` is absent, `water_consumption_amount` is `0`
-- Heating formula validation:
-  - `sum_units_counted > 0` when calculating variable components
-  - each apartment must provide `e_a`, `f_a`, and `units_counted_a` for the billing period
-  - `sum_fixed = sum(f_i * e_i)` must satisfy `0 <= sum_fixed <= 1`
-  - `radiator_share_a` should be within `[0,1]` and all shares should sum to approximately `1.0` (allow minor rounding tolerance)
-- Ordering rule:
-  - all apartment lists shown in UI and API responses must be sorted by `unit_code` ascending.
+Status becomes `paid` when outstanding is 0 and some payment exists. Otherwise an issued invoice stays `issued`. Overpayment is rejected.
 
-## 9. What you should provide next
-- Your explanation for how heated water bills are distributed among apartments.
+## 8. Building reserve on the dashboard
+`openingBalance` is `Building.fund_balance`.
 
-Once you provide them, we will:
-1. finalize heated-water `inputs_json` schema (or replace with explicit fields)
-2. finalize deterministic computation steps and add test cases for sample scenarios.
+`unpaidTotal` is the sum of `outstanding_balance` for invoices with a positive balance (building-wide for admins, `building_scope=1` for residents).
 
+`unbilledExpensesTotal` is the sum of expense amounts whose month has no invoice in status `issued` or `paid`. `fund_increase` rows are left out, because they already sit in the reserve.
+
+`remaining = openingBalance − unpaidTotal − unbilledExpensesTotal`
+
+Issued months are not subtracted again as expenses. Their unpaid part is already in `unpaidTotal`.
+
+## 9. Payments and recall
+- A payment does not change computed component totals.
+- Deleting a payment recalculates `paid_total`, outstanding balance, and status, and removes that payment’s receipt documents.
+- `POST /api/invoices/recall-month/` with `{ "month", "confirm": true }` deletes every invoice for the month and cascades payments and stored PDFs.
+
+## 10. Validation used at generation
+- At least one apartment must exist.
+- `0 ≤ Σ(f_i × e_i) ≤ 1` when the radiator formula runs.
+- `sum_units_counted > 0` when a variable radiator share is required.
+- Missing apartment measurement rows allocate 0 for that apartment.
+- Missing gas or hot-water bills produce 0 for those components.
+- Apartment lists are ordered by `unit_code`.

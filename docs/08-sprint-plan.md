@@ -1,5 +1,14 @@
 # Block-of-Flats Admin: Sprint Delivery Plan
 
+## Delivery status (2026-11-17)
+Sprints 1–5 below are delivered. Sprint 6 is partial.
+
+Done from the Sprint 6 list: production Compose on localhost, host nginx + Certbot, Brevo mail, Greek UI/PDFs/emails, forced password change, password reset, payment and measurement deletes, month invoice recall, authenticated PDF download.
+
+Not done: response caching, backup/restore runbook, end-to-end monthly-cycle tests, English translations, automatic role assignment from an election.
+
+The sections under this heading are the original plan. Where they disagree with the code, `docs/02-domain-model.md`, `docs/03-accounting-rules.md`, and `docs/04-api-spec.md` win. In particular, votes are final (not editable until the deadline), and there is no `AdministratorTerm`.
+
 ## Planning principles
 - Each sprint ends with a usable release candidate.
 - Sprints are vertical slices (backend + frontend + data + docs + deploy updates).
@@ -126,10 +135,10 @@ Enable governance and communication cycle.
 - Voting sessions:
   - motions + annual election session types
   - one vote per apartment, designated voter only, deadline enforcement
-- Results computation and auditability
+- Results computation (counts only; no role assignment)
 - Monthly invoice distribution:
   - bulk send invoice emails per apartment with attached PDF
-  - dispatch status dashboard for admin
+  - dispatch rows with queued/sent/failed/skipped (no separate dispatch dashboard)
 - UI:
   - voting list/detail/cast flow
   - admin “Send monthly invoices” flow
@@ -139,7 +148,7 @@ Enable governance and communication cycle.
 - Admin can send monthly invoices automatically by email.
 
 ### Exit criteria
-- Security checks confirm no double-vote and no non-designated voting.
+- Security checks confirm one final vote per apartment and no non-designated voting.
 
 ---
 

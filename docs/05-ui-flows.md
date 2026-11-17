@@ -1,252 +1,96 @@
-# Block-of-Flats Admin: UI Flows (Angular)
+# Block-of-Flats Admin: UI Flows
 
-## 1. General UI principles
-- UI locale defaults to Greek (`el`) for MVP.
-- All visible labels/messages, invoice/receipt previews, and notification text are Greek-first.
-- App must be i18n-ready so English (`en`) can be introduced later without reworking route/data models.
-- Use route guards:
-  - regular users can only navigate to screens whose data they are allowed to see
-  - designated voter actions are enabled only when the backend confirms the user is designated voter for the apartment
-- Use a consistent “month context selector” across accounting screens:
-  - default to current month
-  - allow selecting past months (admin especially)
-- Use “apartment picker” only where required:
-  - for regular users, apartment list is derived from `ApartmentUser` links
+Greek labels are the product UI. Routes live in `frontend/src/app/app.routes.ts`. The visual reference is the dark admin dashboard in the frontend Figma rule.
 
-## 2. Shared layout
-Suggested Angular routes:
-- `/` (redirect to dashboard)
-- `/login`
-- `/dashboard`
-- `/invoices`
-- `/invoices/:invoiceId`
-- `/voting`
-- `/voting/sessions/:sessionId`
-- `/admin`
-  - `/admin/measurements`
-  - `/admin/expenses`
-  - `/admin/payments`
-  - `/admin/voting-sessions`
-  - `/admin/elections` (optional, if separate from voting sessions)
-  - `/admin/apartments` (superadmin-only)
+## 1. Shell
+Authenticated pages render inside `AdminShellComponent` at `/app`.
 
-## 3. Authentication flow
-### 3.1 Login
-User actions:
-- enters email/password (or invite-based flow; TBD)
-Backend actions:
-- returns JWT access token (+ refresh token if used)
-UI behavior:
-- stores token in memory or secure storage
-- fetches `/me` (or equivalent) to load role + apartment links + designated voter summary (if you expose it)
+Sidebar:
+- Πίνακας ελέγχου → `/app/dashboard`
+- Λογαριασμοί → `/app/invoices`
+- Έξοδα → `/app/expenses`
+- Στατιστικά → `/app/statistics`
+- Μετρήσεις → `/app/measurements`
+- Ψηφοφορίες → `/app/voting`
+- Profile chip → `/app/profile`
 
-## 4. Tenant/owner flows (regular users)
+Top bar: username and role, **Λειτουργία διαχειριστή** for role `administrator` (sessionStorage), always-on management for `superadmin`, and logout.
 
-### 4.1 Dashboard (monthly status)
-Purpose:
-- Show per-linked-apartment status for the selected month.
-UI data needs:
-- For each linked apartment:
-  - invoice outstanding balance and paid total
-  - a component breakdown summary (radiator heating/heated-water energy/water consumption + common expenses)
-  - (optional) last activity timestamps (e.g., last invoice regen)
-Actions:
-- user can navigate to invoice details
-APIs:
-- `GET /stats/monthly/?month=YYYY-MM` or `GET /invoices/?month=YYYY-MM`
+`/app/payments` and `/app/analysis` are routed. Analysis is opened from the dashboard. Payments is not a sidebar item.
 
-### 4.2 Invoices list
-Purpose:
-- list invoices for selected month across the apartments the user belongs to.
-UI data needs:
-- invoice totals, outstanding balances, payment status
-Actions:
-- click invoice to see details
-APIs:
-- `GET /invoices/?month=YYYY-MM`
+Guards:
+- `authGuard` on `/app` and `/set-password`
+- `passwordChangeGuard` sends a user with `must_change_password` to `/set-password`
+- `adminOnlyGuard` on expense create/edit routes
 
-### 4.3 Invoice detail
-Purpose:
-- show charge breakdown and payment history.
-UI data needs:
-- `heating_radiators_total`, `heated_water_energy_total`, `water_consumption_total`, category totals, invoice_total
-- payments list: date/amount/reference
-- computed `outstanding_balance`
-APIs:
-- `GET /invoices/:invoiceId/`
-- `GET /invoices/:invoiceId/payments/`
+## 2. Auth
+- `/login` — username and password, then `/api/token/` and `/api/me/`
+- `/forgot-password` — asks for an email reset
+- `/reset-password` — sets a password from the email token
+- `/set-password` — required before the shell when the invite flag is set
 
-### 4.4 Voting: sessions list
-Purpose:
-- show active and upcoming sessions (motions and annual election).
-UI data needs:
-- session title/description
-- session status (active/closed)
-- voting deadline displayed
-APIs:
-- `GET /voting/sessions/`
+Tokens are stored by `AuthService` and attached by the auth interceptor.
 
-### 4.5 Voting: session detail and cast vote
-Purpose:
-- allow designated voter to cast/change vote until deadline.
-UI data needs:
-- session metadata (start/end, description)
-- current user’s votes for apartments they are linked to
-- results preview if session is closed
-Actions:
-- If user is designated voter for apartment:
-  - show vote controls (e.g., Yes/No/Abstain)
-  - allow changing until `end_at`
-  - show “Your vote saved”
-- If user is not designated voter:
-  - show the apartment list with read-only “vote not editable”
-APIs:
-- `GET /voting/sessions/:sessionId/`
-- `GET /voting/sessions/:sessionId/votes/` (scoped)
-- `POST /voting/sessions/:sessionId/votes/` or `PUT ...`
-- `GET /voting/sessions/:sessionId/results/`
+## 3. Dashboard (`/app/dashboard`)
+Shows the caller’s apartments, unpaid or latest invoices, measurement charts, and the building reserve.
 
-## 5. Administrator flows (elevated access)
+Remaining capital = reserve − unpaid invoice balances − expenses whose month is not yet issued or paid. Fund-increase expenses are excluded from that last term. Admins in management mode can patch `fund_balance` inline.
 
-### 5.1 Admin entry point
-Purpose:
-- show admin panel only if user has active `AdministratorTerm` or is `superadmin`.
-Actions:
-- navigate to measurements/expenses/payments and voting session management
+A personalized greeting uses the profile name. Invoice PDF download is available from the invoice cards. The analysis screen is opened from here.
 
-## 6. Admin flows: measurements
+## 4. Invoices (`/app/invoices`)
+Month picker. Lists invoices in scope with component totals, custom adjustment, paid and outstanding amounts.
 
-### 6.1 Month-based measurement history
-Purpose:
-- browse measurement coverage month-by-month and inspect details.
-UI data needs:
-- month rows with counts (`heating_entries`, `heated_water_entries`, `apartments_total`)
-- expandable month detail rows per apartment
-Actions:
-- open a month row and inspect previous/current/diff values for both commodities
-APIs:
-- `GET /accounting/heating-inputs/months/`
-- `GET /accounting/heating-inputs/month-detail/?month=...`
+Admin mode:
+- generate / regenerate the month, including per-apartment adjustments
+- send monthly invoice emails
+- mark paid and resend a receipt
+- recall the month (confirm). That deletes invoices, payments, and stored PDFs for the month
+- download invoice or receipt PDF
 
-### 6.2 New monthly measurement entry (single combined form)
-Purpose:
-- enter new monthly readings for all apartments in one form.
-UI behavior:
-- default month is backend-provided `suggested_next_month`
-- one table row per apartment with:
-  - previous heating reading (read-only)
-  - current heating reading (input)
-  - computed heating units (read-only, diff)
-  - previous hot-water reading (read-only)
-  - current hot-water reading (input)
-  - computed hot-water units (read-only, diff)
-- a single `measurement_date` identifies the entry (no separate billing period)
+Residents see linked apartments and can download PDFs they are allowed to read.
 
-Rules:
-- No separate “heating page” and “hot-water page”; both commodities are entered together.
-- Units are always derived from current minus previous reading.
-- Apartment thermal factors (`e/f`) are not entered in this monthly form (maintained in apartment master data by superadmin).
+## 5. Expenses
+`/app/expenses` lists the month with category icons. Draft billing preview calls `GET /api/invoices/preview/`.
 
-APIs:
-- `GET /accounting/heating-inputs/entry-form/?month=...`
-- `POST /accounting/heating-inputs/monthly-upsert/`
+`/app/expenses/new` and `/app/expenses/:id` are admin-only. The form collects category, date, amount, description, and the affected measurement range for gas and hot-water bills. Fund-increase rows update the building reserve on save.
 
-## 7. Admin flows: expenses
+## 6. Statistics (`/app/statistics`)
+Building expense totals for every signed-in user. Data comes from `GET /api/accounting/expenses/`. The window is the latest 12 months that have expenses, or fewer when history is shorter. Every chart shares that month axis.
 
-### 7.1 Expenses list and create
-Purpose:
-- record expense items for a selected month.
-UI data needs:
-- existing expenses for month
-- category dropdown
-- total sums (optional)
-Actions:
-- add expense with:
-  - category
-  - expense date
-  - affected measurement date range (`affected_period_start` / `affected_period_end`) when category is heating gas or water-consumption bill
-  - amount
-  - description
-- edit past entries
-APIs:
-- `GET /accounting/expenses/?month=...`
-- `POST /accounting/expenses/`
-- `PATCH /accounting/expenses/:expenseId/`
+The first chart is **Σύνολο εξόδων**, a line of all expenses in each month. Each other category is its own line in the category color, with the category icon. **Ζημιές** is one solid bar per month, not a line. **Αποθεματικό** is the building reserve at each month (`fund_balance`, with later top-ups removed), not the monthly increase. A category with no amount in the window is hidden.
 
-### 7.2 Allocation preview (optional but useful)
-Purpose:
-- show computed allocated amounts per apartment while the admin fills expenses (draft billing preview).
-UI data needs:
-- per apartment allocated component totals
-APIs:
-- `GET /invoices/preview/?month=YYYY-MM`
+**Θέρμανση** is the sum of apartment heating `units_counted` (kWh) per month. **Ζεστό νερό** is the sum of `computed_heating_water_volume` (m³) per month. **Θέρμανση ζεστού νερού** is the boiler `hot_water_heating_units` (kWh) from `GET /api/accounting/heating-inputs/building-hot-water/`. The first reading of each apartment and of the boiler is a meter baseline and is left out, matching the dashboard. These charts use the latest 12 months that have readings.
 
-## 8. Admin flows: invoices
+## 7. Measurements (`/app/measurements`)
+One screen for heating, apartment hot water, and the building boiler.
 
-### 8.1 Generate/regenerate invoices for month
-Purpose:
-- create or refresh invoices for a month after measurement/expense updates.
-UI data needs:
-- list month invoices and status
-Actions:
-- press “Generate invoices”
-- press “Send monthly invoices” to trigger automated emails
-- show confirmation if affected months change due to retroactive edits
-APIs:
-- `POST /invoices/generate/` with `{ "month": "YYYY-MM" }`
-- `POST /invoices/send-monthly-email/` with `{ "month": "YYYY-MM" }`
+- Date list from `GET /api/accounting/heating-inputs/dates/`
+- Open a date to see previous / current / delta per apartment
+- Entry form defaults to the next date after the latest stored date
+- One `measurement_date` for the whole sheet. Factors `e` / `f` are not entered here
+- Admin mode can save (`monthly-upsert`) and delete a date (`by-date`)
+- Print opens a Greek measurement sheet in a new window
 
-### 8.2 Payment entry
-Purpose:
-- record payments against an invoice.
-Actions:
-- select apartment invoice
-- enter payment date/amount/reference
-- mark invoice as paid when outstanding reaches `0`
-- system sends receipt email with PDF automatically after marking paid
-APIs:
-- `GET /invoices/:invoiceId/` (context)
-- `GET /accounting/payments/?month=YYYY-MM`
-- `POST /accounting/payments/`
-- `POST /invoices/:invoiceId/mark-paid/`
-- `POST /invoices/:invoiceId/send-receipt/` (resend with duplicate protection)
+A date cannot be edited after invoices exist for that month.
 
-### 8.3 Tenant payment history
-Purpose:
-- allow tenants/owners to track settlements for linked apartments.
-Actions:
-- filter by month
-- review amount/date/method/reference history
-APIs:
-- `GET /accounting/payments/?month=YYYY-MM`
+## 8. Payments (`/app/payments`)
+Month-filtered payment history. Admin mode can record a payment against an invoice and delete one. Recording a payment stores a receipt PDF and sends the receipt email. Residents only see payments for linked apartments.
 
-## 9. Admin flows: voting sessions
+## 9. Analysis (`/app/analysis`)
+Month view of how invoice totals split across apartments (`GET /api/invoices/analysis-share/`) and the expense mix for that month. Opened from the dashboard.
 
-### 9.1 Create/manage motion
-Purpose:
-- create arbitrary motions with start/end deadlines.
-UI actions:
-- choose motion title/description
-- set start_at and end_at
-- open motion
-APIs:
-- `POST /voting/sessions/`
-- `PATCH /voting/sessions/:sessionId/`
+## 10. Voting
+`/app/voting` lists sessions (active and inactive). `/app/voting/:id` is the detail page.
 
-### 9.2 Election session management
-Purpose:
-- handle the annual administrator election session.
-Policy:
-- The admin-election winner is derived from votes and mapped to `AdministratorTerm`.
-UI actions:
-- ensure the election session is active during the voting window
-- after end, show computed winner and confirm term assignment
-APIs:
-- `POST /voting/sessions/` with `session_type=administrator_election`
-- `GET /voting/sessions/:sessionId/results/`
+A designated voter of a linked apartment submits one option while the session is active and inside the window. The vote cannot be changed. Closed sessions show result counts.
 
-## 10. Superadmin flows (separate from admin)
-Covered in a future doc section; at minimum, include:
-- manage apartment ownership permille and membership
-- set designated voter for each apartment
+Admin mode can create a session (building, type, title, description, window, status, optional comma-separated options), edit it, and move status among draft, active, and closed.
 
+Election results do not change the administrator role.
+
+## 11. Profile (`/app/profile`)
+Name, email, preferred language, and password change via `/api/me/`.
+
+## 12. What stays in Django admin
+User invites, apartment records, membership flags, ownership permille, and designated-voter setup. The Angular app reads those records. It does not replace `/admin/` for them.

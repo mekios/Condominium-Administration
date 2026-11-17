@@ -1,5 +1,7 @@
 # Frontend
 
+Angular app for the Μεταμόρφωσεως 5 building admin. UI copy is Greek. Product behavior is documented in `../docs/05-ui-flows.md`. The API base URL is `src/app/core/api.constants.ts` in dev and `api.constants.prod.ts` in production builds.
+
 This project was generated using [Angular CLI](https://github.com/angular/angular-cli) version 21.2.3.
 
 ## Development server

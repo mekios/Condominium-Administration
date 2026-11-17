@@ -6,8 +6,8 @@ This system manages monthly accounting for a single block of flats. It allows te
 2) view invoice payment/settlement status
 3) participate in voting (with one vote per apartment)
 
-An administrator (elected yearly) has elevated access to enter the accounting data and manage voting sessions.
-There is also a `superadmin` who invites users and configures apartment assignments.
+An administrator has elevated access to enter the accounting data and manage voting sessions. The role is set by the superadmin. An election session records votes and does not assign the role.
+The superadmin invites users and configures apartment assignments.
 
 ## 2. Definitions
 - **Building**: the single block of flats being administered (initially one building only).
@@ -18,7 +18,7 @@ There is also a `superadmin` who invites users and configures apartment assignme
 - **ApartmentUser link**: association between a `User` and an `Apartment`, created by `superadmin`. A user may be linked to multiple apartments.
 - **Ownership**: for each apartment, owners have an ownership share in permille (0..1000). Common expenses are allocated proportionally to ownership.
 - **Designated voter (per apartment)**: exactly one linked user per apartment is allowed to cast that apartment’s vote for any vote session.
-- **Administrator (elected yearly)**: the designated voter of the elected apartment receives elevated access for that year’s term.
+- **Administrator**: a user with `role=administrator`, set by the superadmin. Write access is not derived from election results.
 - **Accounting period (monthly)**: each month has an accounting bucket (e.g., `2026-03`) to which measurements/expenses are assigned.
 - **Invoice**: per-apartment, per-month bill computed from allocated components.
 
@@ -38,7 +38,7 @@ There is also a `superadmin` who invites users and configures apartment assignme
   - Links users to apartments
   - Sets the designated voter for each apartment
   - Can manage configuration and maintenance
-- **Administrator (elected yearly)**
+- **Administrator** (`User.role`, assigned by the superadmin)
   - Inputs measurements needed for allocations (heating and heated water)
   - Records expense items and payments
   - Manages voting sessions (including administrative election and motions)
@@ -167,22 +167,21 @@ There is also a `superadmin` who invites users and configures apartment assignme
 - As a tenant/owner designated voter, I can cast one vote per apartment for active voting sessions.
 - Acceptance criteria:
   - A designated voter can submit exactly one vote per apartment per voting session.
-  - The system rejects attempts to cast a second vote for the same apartment+session.
+  - The system rejects a second vote for the same apartment and session and keeps the first vote.
   - A user who is not the designated voter cannot cast a vote for that apartment.
 
-**US-12: Cast/change vote until deadline**
-- As the designated voter, I can change my vote while the session is active, until the deadline.
+**US-12: Cast one final vote inside the window**
+- As the designated voter, I can cast one vote while the session is active and inside its window.
 - Acceptance criteria:
-  - Vote edits are allowed up until `end_at` of the session.
-  - After `end_at`, vote submission and modifications are rejected.
+  - Submission is accepted only when status is `active` and the current time is between `start_at` and `end_at`.
+  - A second submission for the same apartment and session is rejected. The stored vote is not replaced.
 
-**US-13: Administrator election (yearly)**
-- As administrator election logic, the designated voters cast votes per apartment for the administrator election.
+**US-13: Administrator election session**
+- As designated voters, we can vote in a session of type `administrator_election`.
 - Acceptance criteria:
-  - Election sessions are yearly.
-  - Winner selection uses a majority rule (default: “highest number of votes wins”; ties require a tie-break rule which will be documented as `TBD` until you choose it).
-  - The designated voter of the winning apartment becomes the `administrator` for the election term.
-  - If the designated voter changes before term start, term assignment policy is `TBD` (default: winner’s designated voter at election close).
+  - The session is created and closed by an administrator or superadmin. It is not scheduled automatically each year.
+  - Results are vote counts. They do not change `User.role`.
+  - The superadmin sets `role=administrator` on the user who should have write access.
 
 **US-14: Arbitrary motions**
 - As `administrator` (or `superadmin`), I can create and run arbitrary motions.
@@ -219,9 +218,16 @@ There is also a `superadmin` who invites users and configures apartment assignme
   - expense items allocated by month and category
   - payment totals are subtracted from invoice totals to compute outstanding balance.
 
-## 6. Open items / TBD placeholders
-- The heated water distribution algorithm you plan to explain later.
-- Treatment of non-recurring categories if you want a different allocation method than ownership permille.
-- Vote options set (e.g., `yes/no/abstain`) and tie-break rule for administrator election.
-- Rounding policy for currency and allocation components (default: currency minor units with banker's rounding rules documented later).
+## 6. Decisions recorded in the implementation
+- Hot-water volume is the meter delta. It splits both the hot-water portion of the gas bill and `water_hw_consumption_bill`. Garden water (`common_water_usage`) uses ownership permille.
+- Non-recurring categories (`damages`, `annual_servicing`, `other`) use ownership permille.
+- Default vote options are `yes` / `no` / `abstain`. A session may store a custom list in `vote_options_json`. There is no tie-break, because election results do not assign a role.
+- Currency is euros at 2 decimal places, half-up, with the cent remainder distributed so shares sum to the expense. See `docs/03-accounting-rules.md`.
+- Owners-only expenses and fund top-ups are invoice lines allocated by ownership permille. A fund top-up also increases `Building.fund_balance`.
+- Each invoice may carry `custom_adjustment` and a note, applied on generate.
+
+## 7. Still outside this requirements set
+- Automatic administrator assignment from an election.
+- English translations. `preferred_language` is stored; the UI, PDFs, and emails are Greek.
+- Resident self-service for membership. Invites and apartment links stay in Django admin.
 
