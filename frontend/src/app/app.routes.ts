@@ -34,6 +34,10 @@ export const routes: Routes = [
         loadComponent: () => import('./features/expenses.component').then((m) => m.ExpensesComponent),
       },
       {
+        path: 'statistics',
+        loadComponent: () => import('./features/statistics.component').then((m) => m.StatisticsComponent),
+      },
+      {
         path: 'expenses/new',
         canActivate: [adminOnlyGuard],
         loadComponent: () => import('./features/expense-edit.component').then((m) => m.ExpenseEditComponent),

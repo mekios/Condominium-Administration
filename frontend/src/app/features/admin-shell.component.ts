@@ -50,6 +50,12 @@ import { AuthService } from '../core/auth.service';
             </svg>
             <span>Έξοδα</span>
           </a>
+          <a routerLink="/app/statistics" routerLinkActive="active" (click)="closeMobileMenu()">
+            <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M4 19V5m0 14h16M7 14l4-5 3 3 5-7" />
+            </svg>
+            <span>Στατιστικά</span>
+          </a>
           <a routerLink="/app/measurements" routerLinkActive="active" (click)="closeMobileMenu()">
             <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
               <path d="M3 16.5 16.5 3 21 7.5 7.5 21H3v-4.5ZM11 7l6 6" />

@@ -477,6 +477,20 @@ class InvoiceGenerationTests(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(str(response.data["suggested_next_date"]), "2026-08-01")
 
+    def test_building_hot_water_lists_boiler_units(self):
+        BuildingMeasurementInput.objects.create(
+            building=self.building,
+            measurement_date=date(2026, 7, 1),
+            hot_water_heating_current_reading=Decimal("30"),
+            hot_water_heating_units=Decimal("30"),
+            created_by_user=self.admin,
+        )
+        response = self.client.get(reverse("heating-inputs-building-hot-water"))
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(response.data), 1)
+        self.assertEqual(response.data[0]["building"], self.building.id)
+        self.assertEqual(response.data[0]["hot_water_heating_units"], "30.0000")
+
     def test_expense_api_requires_measurement_range_for_gas_and_water(self):
         response = self.client.post(
             reverse("expenses-list"),

@@ -1437,6 +1437,23 @@ class HeatingMeasurementInputViewSet(AdminWriteRequiredMixin, viewsets.ModelView
 
         return Response({"items": items, "suggested_next_date": suggested_date}, status=status.HTTP_200_OK)
 
+    @action(methods=["get"], detail=False, url_path="building-hot-water")
+    def building_hot_water(self, request):
+        building_ids = _measurement_building_ids_for_user(request.user)
+        rows = BuildingMeasurementInput.objects.filter(building_id__in=building_ids).order_by(
+            "measurement_date", "id"
+        )
+        return Response(
+            [
+                {
+                    "building": row.building_id,
+                    "measurement_date": row.measurement_date,
+                    "hot_water_heating_units": str(row.hot_water_heating_units),
+                }
+                for row in rows
+            ]
+        )
+
     @action(methods=["get"], detail=False, url_path="entry-form")
     def entry_form(self, request):
         measurement_date = request.query_params.get("measurement_date")
