@@ -325,7 +325,7 @@ type ApartmentMeasurementChart = {
       </p>
       <p class="hint" *ngIf="!latestIssuedMonth">Δεν υπάρχουν εκδομένοι λογαριασμοί ακόμα.</p>
       <div class="table-wrap" *ngIf="latestExpenses.length; else emptyExpenses">
-        <table class="expenses-table">
+        <table class="expenses-table stack-cards">
           <thead>
             <tr>
               <th>Κατηγορία</th>
@@ -334,7 +334,7 @@ type ApartmentMeasurementChart = {
           </thead>
           <tbody>
             <tr *ngFor="let expense of latestExpenses">
-              <td class="cat-cell">
+              <td class="cat-cell card-title">
                 <span class="cat-inner">
                   <svg
                     *ngIf="getIconPath(expense.expense_category)"
@@ -349,13 +349,13 @@ type ApartmentMeasurementChart = {
                   <span>{{ getDisplayLabel(expense) }}</span>
                 </span>
               </td>
-              <td>{{ expense.amount | euro }}</td>
+              <td data-label="Ποσό">{{ expense.amount | euro }}</td>
             </tr>
           </tbody>
           <tfoot>
             <tr>
-              <td>Σύνολο μήνα</td>
-              <td>{{ latestExpensesTotal | euro }}</td>
+              <td class="summary-label">Σύνολο μήνα</td>
+              <td data-label="">{{ latestExpensesTotal | euro }}</td>
             </tr>
           </tfoot>
         </table>
@@ -662,8 +662,20 @@ type ApartmentMeasurementChart = {
     @media (max-width: 900px) {
       .invoice-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
     }
-    @media (max-width: 640px) {
+    @media (max-width: 767px) {
       .invoice-grid { grid-template-columns: 1fr; }
+      .welcome-title,
+      .welcome-name {
+        overflow-wrap: anywhere;
+      }
+      .fund-row,
+      .fund-edit {
+        flex-wrap: wrap;
+      }
+      .panel-actions .analysis-btn {
+        width: 100%;
+        text-align: center;
+      }
     }
     .chart-head {
       display: flex;
@@ -897,6 +909,32 @@ type ApartmentMeasurementChart = {
       text-align: center;
       line-height: 1.15;
       max-width: 100%;
+    }
+    @media (max-width: 1023px) {
+      .line-chart-wrap,
+      .line-chart-main,
+      .point-layer,
+      .x-axis,
+      .y-axis,
+      .apt-chart,
+      .bars {
+        max-width: 100%;
+        overflow: hidden;
+      }
+      .bars {
+        overflow-x: hidden;
+      }
+      .bar-col {
+        flex: 1 1 0;
+        width: auto;
+        min-width: 0;
+      }
+      .bar-total,
+      .bar-label {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        max-width: 100%;
+      }
     }
   `,
 })

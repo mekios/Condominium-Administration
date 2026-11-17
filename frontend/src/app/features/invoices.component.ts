@@ -174,7 +174,7 @@ type InvoiceFilterMode = 'single' | 'range' | 'all';
             <p class="hint warning" *ngFor="let warn of previewWarnings">{{ warn }}</p>
           </div>
           <div class="table-wrap" *ngIf="previewItems.length">
-            <table>
+            <table class="stack-cards">
               <thead>
                 <tr>
                   <th>Διαμέρισμα</th>
@@ -192,15 +192,15 @@ type InvoiceFilterMode = 'single' | 'range' | 'all';
               </thead>
               <tbody>
                 <tr *ngFor="let row of previewItems">
-                  <td>{{ row.apartment_unit_code }}</td>
-                  <td>{{ row.heating_radiators_total | euro }}</td>
-                  <td>{{ row.heated_water_energy_total | euro }}</td>
-                  <td>{{ row.water_consumption_total | euro }}</td>
-                  <td>{{ row.common_recurring_total | euro }}</td>
-                  <td>{{ row.common_non_recurring_total | euro }}</td>
-                  <td>{{ row.owners_only_total | euro }}</td>
-                  <td>{{ row.computed_total | euro }}</td>
-                  <td>
+                  <td class="card-title">{{ row.apartment_unit_code }}</td>
+                  <td data-label="Καλοριφέρ">{{ row.heating_radiators_total | euro }}</td>
+                  <td data-label="Ζεστό νερό">{{ row.heated_water_energy_total | euro }}</td>
+                  <td data-label="Νερό">{{ row.water_consumption_total | euro }}</td>
+                  <td data-label="Κοινόχρηστα">{{ row.common_recurring_total | euro }}</td>
+                  <td data-label="Έκτακτα">{{ row.common_non_recurring_total | euro }}</td>
+                  <td data-label="Μόνο ιδιοκτ.">{{ row.owners_only_total | euro }}</td>
+                  <td data-label="Υπολογ. σύνολο">{{ row.computed_total | euro }}</td>
+                  <td data-label="Προσαρμογή">
                     <input
                       class="adjustment-input"
                       type="number"
@@ -209,7 +209,7 @@ type InvoiceFilterMode = 'single' | 'range' | 'all';
                       (ngModelChange)="onAdjustmentChange(row, $event)"
                     />
                   </td>
-                  <td>
+                  <td data-label="Σχόλιο">
                     <input
                       class="note-input"
                       type="text"
@@ -217,7 +217,7 @@ type InvoiceFilterMode = 'single' | 'range' | 'all';
                       [(ngModel)]="row.custom_adjustment_note"
                     />
                   </td>
-                  <td>{{ getAdjustedTotal(row) | euro }}</td>
+                  <td data-label="Τελικό σύνολο">{{ getAdjustedTotal(row) | euro }}</td>
                 </tr>
               </tbody>
             </table>
@@ -539,6 +539,8 @@ type InvoiceFilterMode = 'single' | 'range' | 'all';
     }
     .modal {
       width: min(620px, 100%);
+      max-height: calc(100dvh - 2rem);
+      overflow: auto;
       border: 1px solid #33497a;
       border-radius: 12px;
       background: radial-gradient(circle at 8% 2%, rgba(126, 110, 255, 0.23), transparent 43%),
@@ -770,6 +772,11 @@ type InvoiceFilterMode = 'single' | 'range' | 'all';
       font-size: 0.86rem;
       flex-wrap: wrap;
     }
+    @media (max-width: 1300px) {
+      .invoice-grid {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+      }
+    }
     @media (max-width: 900px) {
       .invoice-grid {
         grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -785,14 +792,30 @@ type InvoiceFilterMode = 'single' | 'range' | 'all';
         align-items: stretch;
       }
     }
-    @media (max-width: 1300px) {
-      .invoice-grid {
-        grid-template-columns: repeat(3, minmax(0, 1fr));
-      }
-    }
-    @media (max-width: 640px) {
+    @media (max-width: 767px) {
       .invoice-grid {
         grid-template-columns: 1fr;
+      }
+      .filter-body.range {
+        grid-template-columns: 1fr;
+      }
+      .range-sep {
+        padding: 0;
+        text-align: center;
+      }
+      .actions {
+        flex-direction: column;
+        align-items: stretch;
+      }
+      .actions .btn,
+      .modal .actions .btn {
+        width: 100%;
+      }
+      .action-right {
+        margin-left: 0;
+      }
+      .modal {
+        padding: 0.9rem;
       }
     }
   `,

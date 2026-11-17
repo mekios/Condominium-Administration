@@ -82,7 +82,7 @@ type PaymentRecord = {
       <p class="hint" *ngIf="message">{{ message }}</p>
 
       <div class="table-wrap">
-        <table *ngIf="payments.length; else emptyState">
+        <table class="stack-cards" *ngIf="payments.length; else emptyState">
           <thead>
             <tr>
               <th>Ημερομηνία</th>
@@ -96,13 +96,13 @@ type PaymentRecord = {
           </thead>
           <tbody>
             <tr *ngFor="let row of payments">
-              <td>{{ row.payment_date }}</td>
-              <td>{{ row.apartment_label }}</td>
-              <td>{{ row.invoice_month }}</td>
-              <td>{{ row.amount | euro }}</td>
-              <td>{{ paymentMethodLabel(row.method) }}</td>
-              <td>{{ row.reference || '-' }}</td>
-              <td *ngIf="writeEnabled">
+              <td data-label="Ημερομηνία">{{ row.payment_date }}</td>
+              <td class="card-title">{{ row.apartment_label }}</td>
+              <td data-label="Μήνας">{{ row.invoice_month }}</td>
+              <td data-label="Ποσό">{{ row.amount | euro }}</td>
+              <td data-label="Μέθοδος">{{ paymentMethodLabel(row.method) }}</td>
+              <td data-label="Αναφορά">{{ row.reference || '-' }}</td>
+              <td *ngIf="writeEnabled" class="card-actions" data-label="Ενέργειες">
                 <button class="btn btn-danger" (click)="deletePayment(row)">Διαγραφή</button>
               </td>
             </tr>
@@ -126,7 +126,7 @@ type PaymentRecord = {
     .full { grid-column: 1 / -1; }
     label { display: grid; gap: 0.3rem; color: #b5c9f5; font-size: 0.86rem; }
     input:not([matInput]), select { border: 1px solid #31416c; border-radius: 10px; background: #0d1430; color: #fff; padding: 0.55rem; }
-    .actions { margin-top: 0.8rem; }
+    .actions { margin-top: 0.8rem; display: flex; flex-wrap: wrap; gap: 0.5rem; }
     .btn { border: 0; border-radius: 10px; padding: 0.58rem 0.95rem; color: #fff; font-weight: 600; cursor: pointer; }
     .btn-primary { background: linear-gradient(135deg, #4f78ff, #6d62ff); box-shadow: 0 8px 18px rgba(70,95,255,.35); }
     .btn-secondary { border: 1px solid #30457d; background: #132247; }
@@ -136,6 +136,9 @@ type PaymentRecord = {
     th, td { border-bottom: 1px solid #243152; padding: 0.45rem; text-align: left; white-space: nowrap; font-size: 0.88rem; }
     th { color: #9db2e5; }
     @media (max-width: 900px) { .form-grid { grid-template-columns: 1fr; } }
+    @media (max-width: 767px) {
+      .actions .btn { width: 100%; }
+    }
   `,
 })
 export class PaymentsComponent implements OnInit {

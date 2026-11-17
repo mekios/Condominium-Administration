@@ -127,7 +127,7 @@ type DraftInvoiceItem = {
         <p class="hint" *ngIf="draftLoading">Υπολογισμός προσχεδίου...</p>
         <p class="hint" *ngIf="!draftLoading && draftItems.length === 0">Δεν υπάρχουν στοιχεία προσχεδίου για τον μήνα.</p>
         <div class="draft-table-wrap" *ngIf="!draftLoading && draftItems.length">
-          <table class="draft-table">
+          <table class="draft-table stack-cards">
             <thead>
               <tr>
                 <th>Διαμέρισμα</th>
@@ -142,14 +142,14 @@ type DraftInvoiceItem = {
             </thead>
             <tbody>
               <tr *ngFor="let item of draftItems">
-                <td>{{ item.apartment_unit_code }}</td>
-                <td>{{ item.heating_radiators_total | euro }}</td>
-                <td>{{ item.heated_water_energy_total | euro }}</td>
-                <td>{{ item.water_consumption_total | euro }}</td>
-                <td>{{ item.common_recurring_total | euro }}</td>
-                <td>{{ item.common_non_recurring_total | euro }}</td>
-                <td>{{ (item.owners_only_total || '0.00') | euro }}</td>
-                <td>{{ item.invoice_total | euro }}</td>
+                <td class="card-title">{{ item.apartment_unit_code }}</td>
+                <td data-label="Καλοριφέρ">{{ item.heating_radiators_total | euro }}</td>
+                <td data-label="Ζεστό νερό">{{ item.heated_water_energy_total | euro }}</td>
+                <td data-label="Νερό">{{ item.water_consumption_total | euro }}</td>
+                <td data-label="Κοινόχρηστα">{{ item.common_recurring_total | euro }}</td>
+                <td data-label="Έκτακτα">{{ item.common_non_recurring_total | euro }}</td>
+                <td data-label="Μόνο ιδιοκτ.">{{ (item.owners_only_total || '0.00') | euro }}</td>
+                <td data-label="Σύνολο">{{ item.invoice_total | euro }}</td>
               </tr>
             </tbody>
           </table>
@@ -221,6 +221,9 @@ type DraftInvoiceItem = {
     }
     .actions {
       margin-top: 0.9rem;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.5rem;
     }
     .btn {
       border: 0;
@@ -235,9 +238,20 @@ type DraftInvoiceItem = {
       box-shadow: 0 8px 18px rgba(70, 95, 255, 0.35);
     }
     .btn-ghost {
-      margin-left: 0.6rem;
       background: transparent;
       border: 1px solid #3b4b79;
+    }
+    @media (max-width: 767px) {
+      .form-grid {
+        grid-template-columns: 1fr;
+      }
+      .actions {
+        flex-direction: column;
+        align-items: stretch;
+      }
+      .actions .btn {
+        width: 100%;
+      }
     }
     .draft-panel {
       margin-top: 1rem;

@@ -100,7 +100,7 @@ type EntryFormResponse = BuildingMeasurementFields & {
           <p class="hint" *ngIf="loadingEntryForm">Προετοιμασία φόρμας ημερομηνίας...</p>
 
           <div class="table-wrap" *ngIf="entryRows.length">
-            <table>
+            <table class="stack-cards">
               <thead>
                 <tr>
                   <th rowspan="2" class="apt-col">Διαμέρισμα</th>
@@ -118,9 +118,9 @@ type EntryFormResponse = BuildingMeasurementFields & {
               </thead>
               <tbody>
                 <tr *ngFor="let row of entryRows">
-                  <td class="apt-col">{{ row.apartment_label }}</td>
-                  <td class="muted">{{ formatOneDecimal(row.previous_heating_reading) }}</td>
-                  <td>
+                  <td class="apt-col card-title">{{ row.apartment_label }}</td>
+                  <td class="muted" data-label="Θέρμανση · Προηγ.">{{ formatOneDecimal(row.previous_heating_reading) }}</td>
+                  <td data-label="Θέρμανση · Τρέχ.">
                     <div class="reading-cell">
                       <button
                         type="button"
@@ -138,9 +138,9 @@ type EntryFormResponse = BuildingMeasurementFields & {
                       />
                     </div>
                   </td>
-                  <td class="units">{{ calculateDiff(heatingCurrentByApt[row.apartment_id], row.previous_heating_reading) }}</td>
-                  <td class="muted">{{ formatOneDecimal(row.previous_heated_water_reading) }}</td>
-                  <td>
+                  <td class="units" data-label="Θέρμανση · Μονάδες">{{ calculateDiff(heatingCurrentByApt[row.apartment_id], row.previous_heating_reading) }}</td>
+                  <td class="muted" data-label="Ζεστό νερό · Προηγ.">{{ formatOneDecimal(row.previous_heated_water_reading) }}</td>
+                  <td data-label="Ζεστό νερό · Τρέχ.">
                     <div class="reading-cell">
                       <button
                         type="button"
@@ -158,12 +158,12 @@ type EntryFormResponse = BuildingMeasurementFields & {
                       />
                     </div>
                   </td>
-                  <td class="units">{{ calculateDiff(heatedWaterCurrentByApt[row.apartment_id], row.previous_heated_water_reading) }}</td>
+                  <td class="units" data-label="Ζεστό νερό · Μονάδες">{{ calculateDiff(heatedWaterCurrentByApt[row.apartment_id], row.previous_heated_water_reading) }}</td>
                 </tr>
                 <tr class="building-row">
-                  <td class="apt-col"><strong>Λέβητας ζεστού νερού (κτίριο)</strong></td>
-                  <td class="muted">{{ formatOneDecimal(buildingPreviousReading) }}</td>
-                  <td>
+                  <td class="apt-col card-title"><strong>Λέβητας ζεστού νερού (κτίριο)</strong></td>
+                  <td class="muted" data-label="Προηγ.">{{ formatOneDecimal(buildingPreviousReading) }}</td>
+                  <td data-label="Τρέχ.">
                     <div class="reading-cell">
                       <button
                         type="button"
@@ -180,8 +180,8 @@ type EntryFormResponse = BuildingMeasurementFields & {
                       />
                     </div>
                   </td>
-                  <td class="units">{{ calculateDiff(buildingCurrentReading, buildingPreviousReading) }}</td>
-                  <td colspan="3"></td>
+                  <td class="units" data-label="Μονάδες">{{ calculateDiff(buildingCurrentReading, buildingPreviousReading) }}</td>
+                  <td class="is-empty" colspan="3"></td>
                 </tr>
               </tbody>
             </table>
@@ -215,7 +215,7 @@ type EntryFormResponse = BuildingMeasurementFields & {
           </p>
 
           <div class="table-wrap" *ngIf="monthItems.length">
-            <table class="history-table">
+            <table class="history-table stack-cards">
               <thead>
                 <tr>
                   <th>Ημερομηνία</th>
@@ -229,16 +229,16 @@ type EntryFormResponse = BuildingMeasurementFields & {
               <tbody>
                 <ng-container *ngFor="let item of monthItems">
                   <tr [class.row-open]="expandedDate === item.measurement_date">
-                    <td class="date-cell">{{ item.measurement_date | date:'d MMMM yyyy' }}</td>
-                    <td>{{ item.heating_entries }}</td>
-                    <td>{{ item.heated_water_entries }}</td>
-                    <td>{{ item.apartments_total }}</td>
-                    <td>
+                    <td class="date-cell card-title">{{ item.measurement_date | date:'d MMMM yyyy' }}</td>
+                    <td data-label="Θέρμανση">{{ item.heating_entries }}</td>
+                    <td data-label="Ζεστό νερό">{{ item.heated_water_entries }}</td>
+                    <td data-label="Διαμερίσματα">{{ item.apartments_total }}</td>
+                    <td data-label="Κατάσταση">
                       <span class="badge" [class.badge-locked]="item.locked" [class.badge-open]="!item.locked">
                         {{ item.locked ? 'Σε λογαριασμούς' : 'Επεξεργάσιμο' }}
                       </span>
                     </td>
-                    <td class="row-actions inline-action-group">
+                    <td class="row-actions inline-action-group" data-label="Ενέργειες">
                       <button class="btn btn-secondary" (click)="toggleDate(item.measurement_date)">
                         {{ expandedDate === item.measurement_date ? 'Απόκρυψη' : 'Προβολή' }}
                       </button>
@@ -287,7 +287,7 @@ type EntryFormResponse = BuildingMeasurementFields & {
                         </p>
                         <p class="hint" *ngIf="loadingDetails">Φόρτωση αναλυτικών μετρήσεων...</p>
                         <div class="table-wrap" *ngIf="expandedRows.length">
-                          <table>
+                          <table class="stack-cards">
                             <thead>
                               <tr>
                                 <th rowspan="2" class="apt-col">Διαμέρισμα</th>
@@ -305,10 +305,10 @@ type EntryFormResponse = BuildingMeasurementFields & {
                             </thead>
                             <tbody>
                               <tr *ngFor="let row of expandedRows">
-                                <td class="apt-col">{{ row.apartment_label }}</td>
-                                <td class="muted">{{ formatOneDecimal(row.previous_heating_reading) }}</td>
-                                <td *ngIf="!editingDetail">{{ formatOneDecimal(row.heating_current_reading) }}</td>
-                                <td *ngIf="editingDetail">
+                                <td class="apt-col card-title">{{ row.apartment_label }}</td>
+                                <td class="muted" data-label="Θέρμανση · Προηγ.">{{ formatOneDecimal(row.previous_heating_reading) }}</td>
+                                <td *ngIf="!editingDetail" data-label="Θέρμανση · Τρέχ.">{{ formatOneDecimal(row.heating_current_reading) }}</td>
+                                <td *ngIf="editingDetail" data-label="Θέρμανση · Τρέχ.">
                                   <div class="reading-cell">
                                     <button
                                       type="button"
@@ -325,11 +325,11 @@ type EntryFormResponse = BuildingMeasurementFields & {
                                     />
                                   </div>
                                 </td>
-                                <td class="units" *ngIf="!editingDetail">{{ calculateDiff(row.heating_current_reading, row.previous_heating_reading) }}</td>
-                                <td class="units" *ngIf="editingDetail">{{ calculateDiff(editHeatingByApt[row.apartment_id], row.previous_heating_reading) }}</td>
-                                <td class="muted">{{ formatOneDecimal(row.previous_heated_water_reading) }}</td>
-                                <td *ngIf="!editingDetail">{{ formatOneDecimal(row.heated_water_current_reading) }}</td>
-                                <td *ngIf="editingDetail">
+                                <td class="units" *ngIf="!editingDetail" data-label="Θέρμανση · Μονάδες">{{ calculateDiff(row.heating_current_reading, row.previous_heating_reading) }}</td>
+                                <td class="units" *ngIf="editingDetail" data-label="Θέρμανση · Μονάδες">{{ calculateDiff(editHeatingByApt[row.apartment_id], row.previous_heating_reading) }}</td>
+                                <td class="muted" data-label="Ζεστό νερό · Προηγ.">{{ formatOneDecimal(row.previous_heated_water_reading) }}</td>
+                                <td *ngIf="!editingDetail" data-label="Ζεστό νερό · Τρέχ.">{{ formatOneDecimal(row.heated_water_current_reading) }}</td>
+                                <td *ngIf="editingDetail" data-label="Ζεστό νερό · Τρέχ.">
                                   <div class="reading-cell">
                                     <button
                                       type="button"
@@ -346,14 +346,14 @@ type EntryFormResponse = BuildingMeasurementFields & {
                                     />
                                   </div>
                                 </td>
-                                <td class="units" *ngIf="!editingDetail">{{ calculateDiff(row.heated_water_current_reading, row.previous_heated_water_reading) }}</td>
-                                <td class="units" *ngIf="editingDetail">{{ calculateDiff(editWaterByApt[row.apartment_id], row.previous_heated_water_reading) }}</td>
+                                <td class="units" *ngIf="!editingDetail" data-label="Ζεστό νερό · Μονάδες">{{ calculateDiff(row.heated_water_current_reading, row.previous_heated_water_reading) }}</td>
+                                <td class="units" *ngIf="editingDetail" data-label="Ζεστό νερό · Μονάδες">{{ calculateDiff(editWaterByApt[row.apartment_id], row.previous_heated_water_reading) }}</td>
                               </tr>
                               <tr class="building-row">
-                                <td class="apt-col"><strong>Λέβητας ζεστού νερού (κτίριο)</strong></td>
-                                <td class="muted">{{ formatOneDecimal(buildingPreviousReading) }}</td>
-                                <td *ngIf="!editingDetail">{{ formatOneDecimal(buildingCurrentReading) }}</td>
-                                <td *ngIf="editingDetail">
+                                <td class="apt-col card-title"><strong>Λέβητας ζεστού νερού (κτίριο)</strong></td>
+                                <td class="muted" data-label="Προηγ.">{{ formatOneDecimal(buildingPreviousReading) }}</td>
+                                <td *ngIf="!editingDetail" data-label="Τρέχ.">{{ formatOneDecimal(buildingCurrentReading) }}</td>
+                                <td *ngIf="editingDetail" data-label="Τρέχ.">
                                   <div class="reading-cell">
                                     <button
                                       type="button"
@@ -365,8 +365,8 @@ type EntryFormResponse = BuildingMeasurementFields & {
                                     <input type="number" step="0.1" [(ngModel)]="buildingCurrentReading" />
                                   </div>
                                 </td>
-                                <td class="units">{{ calculateDiff(buildingCurrentReading, buildingPreviousReading) }}</td>
-                                <td colspan="3"></td>
+                                <td class="units" data-label="Μονάδες">{{ calculateDiff(buildingCurrentReading, buildingPreviousReading) }}</td>
+                                <td class="is-empty" colspan="3"></td>
                               </tr>
                             </tbody>
                           </table>
@@ -684,9 +684,29 @@ type EntryFormResponse = BuildingMeasurementFields & {
       white-space: nowrap;
       vertical-align: middle;
     }
-    @media (max-width: 900px) {
-      table {
-        min-width: 640px;
+    @media (max-width: 767px) {
+      .panel-head,
+      .subpanel-head {
+        flex-direction: column;
+        align-items: stretch;
+      }
+      .btn-cta {
+        width: 100%;
+      }
+      .actions {
+        flex-direction: column;
+        align-items: stretch;
+      }
+      .btn-print {
+        margin-left: 0;
+      }
+      .actions .btn {
+        width: 100%;
+        justify-content: center;
+      }
+      .details-head,
+      .details-actions {
+        flex-wrap: wrap;
       }
     }
   `,

@@ -82,7 +82,7 @@ import { AuthService } from '../core/auth.service';
       <section class="content">
         <header class="topbar">
           <div class="topbar-left">
-            <button *ngIf="isTabletMobile" class="btn btn-ghost icon-btn" (click)="toggleSidebar()" aria-label="Άνοιγμα μενού">
+            <button *ngIf="isTabletMobile" class="btn btn-ghost icon-btn menu-btn" (click)="toggleSidebar()" aria-label="Άνοιγμα μενού">
               <svg viewBox="0 0 24 24" class="icon burger-icon" aria-hidden="true">
                 <path d="M4 7h16M4 12h16M4 17h16" />
               </svg>
@@ -289,6 +289,7 @@ import { AuthService } from '../core/auth.service';
     }
     .content {
       padding: 1rem;
+      min-width: 0;
     }
     .topbar {
       display: flex;
@@ -301,10 +302,12 @@ import { AuthService } from '../core/auth.service';
       display: flex;
       align-items: center;
       gap: 0.65rem;
+      min-width: 0;
     }
     .topbar-left > div {
       display: grid;
       align-content: center;
+      min-width: 0;
     }
     .icon-btn {
       width: 2.5rem;
@@ -348,11 +351,13 @@ import { AuthService } from '../core/auth.service';
       margin: 0;
       font-size: 1.3rem;
       line-height: 1.1;
+      overflow-wrap: anywhere;
     }
     p {
       margin: 0.1rem 0 0;
       color: #9db1e2;
       font-size: 0.9rem;
+      overflow-wrap: anywhere;
     }
     .btn {
       border: 0;
@@ -368,6 +373,14 @@ import { AuthService } from '../core/auth.service';
     }
     .btn-ghost:hover {
       background: #13214a;
+    }
+    .btn.icon-btn {
+      padding: 0;
+      line-height: 0;
+    }
+    .btn.icon-btn .icon {
+      display: block;
+      margin: 0;
     }
     .topbar-actions {
       display: flex;
@@ -406,6 +419,26 @@ import { AuthService } from '../core/auth.service';
     @media (max-width: 1023px) {
       .layout {
         grid-template-columns: 1fr;
+        overflow-x: clip;
+        max-width: 100%;
+      }
+      .topbar {
+        flex-wrap: wrap;
+        align-items: flex-start;
+        padding-right: 3.15rem;
+      }
+      .menu-btn {
+        position: fixed;
+        top: 1rem;
+        right: 1rem;
+        z-index: 11;
+      }
+      .topbar-actions {
+        flex-wrap: wrap;
+      }
+      .btn-admin-mode,
+      .superadmin-badge {
+        white-space: normal;
       }
       .sidebar {
         position: fixed;
@@ -423,6 +456,31 @@ import { AuthService } from '../core/auth.service';
       }
       nav {
         grid-template-columns: 1fr;
+      }
+    }
+    @media (max-width: 767px) {
+      .content {
+        padding: 0.75rem;
+      }
+      .menu-btn {
+        top: 0.75rem;
+        right: 0.75rem;
+      }
+      .topbar {
+        flex-wrap: wrap;
+        align-items: flex-start;
+      }
+      h1 {
+        font-size: 1.05rem;
+      }
+      .topbar-actions {
+        width: 100%;
+        flex-wrap: wrap;
+      }
+      .btn-admin-mode,
+      .superadmin-badge {
+        white-space: normal;
+        text-align: center;
       }
     }
   `,

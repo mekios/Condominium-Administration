@@ -87,7 +87,7 @@ type MonthLoadResult = {
     <section class="panel">
       <h3>Έξοδα μήνα {{ selectedMonth | monthFormat }}</h3>
       <div class="table-wrap" *ngIf="expenses.length; else noExpenses">
-        <table>
+        <table class="stack-cards">
           <thead>
             <tr>
               <th>Κατηγορία</th>
@@ -97,15 +97,15 @@ type MonthLoadResult = {
           </thead>
           <tbody>
             <tr *ngFor="let item of expenses">
-              <td>{{ getDisplayLabel(item) }}</td>
-              <td>{{ item.expense_date }}</td>
-              <td>{{ item.amount | euro }}</td>
+              <td class="card-title">{{ getDisplayLabel(item) }}</td>
+              <td data-label="Ημερομηνία">{{ item.expense_date }}</td>
+              <td data-label="Ποσό">{{ item.amount | euro }}</td>
             </tr>
           </tbody>
           <tfoot>
             <tr>
-              <td colspan="2">Σύνολο εξόδων μήνα</td>
-              <td>{{ totalExpenses | euro }}</td>
+              <td class="summary-label" colspan="2">Σύνολο εξόδων μήνα</td>
+              <td data-label="">{{ totalExpenses | euro }}</td>
             </tr>
           </tfoot>
         </table>
@@ -118,7 +118,7 @@ type MonthLoadResult = {
     <section class="panel">
       <h3>Μερίδιο ανά διαμέρισμα (όλα τα διαμερίσματα)</h3>
       <div class="table-wrap" *ngIf="analysisRows.length; else noShares">
-        <table>
+        <table class="stack-cards">
           <thead>
             <tr>
               <th>Διαμέρισμα</th>
@@ -134,22 +134,22 @@ type MonthLoadResult = {
           </thead>
           <tbody>
             <tr *ngFor="let row of analysisRows">
-              <td>{{ row.apartmentUnitCode }}</td>
-              <td>{{ row.heatingRadiatorsTotal | euro }}</td>
-              <td>{{ row.heatedWaterEnergyTotal | euro }}</td>
-              <td>{{ row.waterConsumptionTotal | euro }}</td>
-              <td>{{ row.commonRecurringTotal | euro }}</td>
-              <td>{{ row.commonNonRecurringTotal | euro }}</td>
-              <td>{{ row.ownersOnlyTotal | euro }}</td>
-              <td>{{ row.invoiceTotal | euro }}</td>
-              <td>{{ row.sharePercent.toFixed(2) }}%</td>
+              <td class="card-title">{{ row.apartmentUnitCode }}</td>
+              <td data-label="Καλοριφέρ">{{ row.heatingRadiatorsTotal | euro }}</td>
+              <td data-label="Ζεστό νερό">{{ row.heatedWaterEnergyTotal | euro }}</td>
+              <td data-label="Νερό">{{ row.waterConsumptionTotal | euro }}</td>
+              <td data-label="Κοινόχρηστα">{{ row.commonRecurringTotal | euro }}</td>
+              <td data-label="Έκτακτα">{{ row.commonNonRecurringTotal | euro }}</td>
+              <td data-label="Μόνο ιδιοκτ.">{{ row.ownersOnlyTotal | euro }}</td>
+              <td data-label="Σύνολο">{{ row.invoiceTotal | euro }}</td>
+              <td data-label="Μερίδιο">{{ row.sharePercent.toFixed(2) }}%</td>
             </tr>
           </tbody>
           <tfoot>
             <tr>
-              <td colspan="7">Σύνολο λογαριασμών μήνα</td>
-              <td>{{ totalInvoices | euro }}</td>
-              <td>100.00%</td>
+              <td class="summary-label" colspan="7">Σύνολο λογαριασμών μήνα</td>
+              <td data-label="Σύνολο">{{ totalInvoices | euro }}</td>
+              <td data-label="Μερίδιο">100.00%</td>
             </tr>
           </tfoot>
         </table>
@@ -227,6 +227,7 @@ type MonthLoadResult = {
     @media (max-width: 900px) {
       .head {
         flex-direction: column;
+        align-items: stretch;
       }
     }
   `,

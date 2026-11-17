@@ -205,3 +205,217 @@ button.btn.btn-danger-icon:hover:not(:disabled) svg {
   box-shadow: none;
   overflow: visible;
 }
+
+/* Phones and the overlay-sidebar range: no page-level sideways scroll.
+   Wide data tables become stacked cards up to 1023px, because a landscape
+   phone is still narrower than those tables. */
+@media (max-width: 1023px) {
+  html,
+  body {
+    overflow-x: clip;
+    max-width: 100%;
+  }
+
+  .content,
+  .layout {
+    overflow-x: clip;
+    max-width: 100%;
+  }
+
+  .draft-table-wrap,
+  .table-wrap,
+  .results-table-wrap {
+    overflow-x: clip !important;
+    max-width: 100%;
+  }
+
+  .panel,
+  .subpanel,
+  .stat-card,
+  .apt-chart,
+  .line-chart-wrap,
+  .bars {
+    min-width: 0;
+    max-width: 100%;
+  }
+
+  .x-axis {
+    overflow: hidden;
+  }
+
+  table.stack-cards {
+    display: block !important;
+    width: 100% !important;
+    min-width: 0 !important;
+    border-collapse: separate !important;
+  }
+
+  table.stack-cards thead {
+    display: none !important;
+  }
+
+  table.stack-cards tbody,
+  table.stack-cards tfoot {
+    display: flex !important;
+    flex-direction: column;
+    gap: 0.65rem;
+    width: 100% !important;
+  }
+
+  table.stack-cards tr {
+    display: flex !important;
+    flex-direction: column;
+    border: 1px solid #2a3c66;
+    border-radius: 12px;
+    background: #0d1530 !important;
+    padding: 0.2rem 0;
+    overflow: hidden;
+  }
+
+  table.stack-cards tfoot tr {
+    background: rgba(82, 104, 166, 0.22) !important;
+    border-color: #38518b;
+  }
+
+  table.stack-cards td {
+    display: grid !important;
+    grid-template-columns: minmax(6.5rem, max-content) minmax(0, 1fr);
+    align-items: center;
+    justify-items: end;
+    gap: 0.75rem;
+    width: auto !important;
+    min-width: 0 !important;
+    max-width: 100%;
+    border: 0 !important;
+    border-bottom: 1px solid #1c2948 !important;
+    background: transparent !important;
+    padding: 0.55rem 0.75rem !important;
+    text-align: right !important;
+    white-space: normal !important;
+    overflow-wrap: anywhere;
+    position: static !important;
+    color: inherit;
+  }
+
+  table.stack-cards td::before {
+    content: attr(data-label);
+    justify-self: start;
+    color: #9db2e5;
+    font-weight: 600;
+    font-size: 0.78rem;
+    text-align: left;
+    line-height: 1.3;
+  }
+
+  table.stack-cards td:last-child {
+    border-bottom: 0 !important;
+  }
+
+  table.stack-cards td.card-title,
+  table.stack-cards td.summary-label {
+    order: -1;
+    display: block !important;
+    padding-top: 0.7rem !important;
+    padding-bottom: 0.45rem !important;
+    border-bottom: 0 !important;
+    text-align: left !important;
+    font-weight: 700;
+    font-size: 1rem;
+    color: #edf3ff;
+  }
+
+  table.stack-cards td.card-title::before,
+  table.stack-cards td.summary-label::before,
+  table.stack-cards td[data-label=""]::before {
+    content: none !important;
+  }
+
+  table.stack-cards td[data-label=""] {
+    display: flex !important;
+    justify-content: flex-end !important;
+    font-weight: 700;
+  }
+
+  table.stack-cards td.card-actions,
+  table.stack-cards td.actions-cell,
+  table.stack-cards td.row-actions {
+    order: 1;
+  }
+
+  table.stack-cards td.is-empty,
+  table.stack-cards td:empty {
+    display: none !important;
+  }
+
+  table.stack-cards td:has(input),
+  table.stack-cards td:has(select),
+  table.stack-cards td:has(textarea),
+  table.stack-cards td:has(.reading-cell) {
+    display: flex !important;
+    flex-direction: column;
+    align-items: stretch;
+    justify-items: stretch;
+    text-align: left !important;
+  }
+
+  table.stack-cards td input,
+  table.stack-cards td select,
+  table.stack-cards td textarea {
+    width: 100% !important;
+    max-width: none !important;
+    min-width: 0;
+    min-height: 2.75rem;
+    box-sizing: border-box;
+  }
+
+  table.stack-cards td .reading-cell {
+    display: flex !important;
+    width: 100% !important;
+    max-width: none !important;
+    gap: 0.4rem;
+    align-items: center;
+  }
+
+  table.stack-cards td .reading-cell input {
+    flex: 1 1 auto;
+  }
+
+  table.stack-cards td.card-actions .btn,
+  table.stack-cards td.actions-cell .btn,
+  table.stack-cards td.row-actions .btn {
+    height: auto !important;
+    max-height: none !important;
+    min-height: 2.75rem !important;
+    min-width: 2.75rem;
+  }
+
+  table.stack-cards .inline-action-group {
+    flex-wrap: wrap;
+    justify-content: flex-end;
+  }
+
+  table.stack-cards tr.detail-row {
+    display: block !important;
+    border: 0 !important;
+    background: transparent !important;
+    padding: 0 !important;
+    overflow: visible;
+    box-shadow: none !important;
+  }
+
+  table.stack-cards tr.detail-row > td {
+    display: block !important;
+    border: 0 !important;
+    padding: 0.15rem 0 0 !important;
+    background: transparent !important;
+    text-align: left !important;
+  }
+
+  table.stack-cards tr.detail-row > td::before {
+    content: none !important;
+  }
+
+  table.stack-cards tr.row-open {
+    border-color: #6d8dce;
+  }
+}

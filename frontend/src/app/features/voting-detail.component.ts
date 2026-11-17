@@ -97,14 +97,14 @@ type VoteResults = {
         <button class="btn btn-ghost" (click)="loadVotes()" [disabled]="votesLoading">{{ votesLoading ? 'Φόρτωση...' : 'Ανανέωση' }}</button>
       </div>
       <div class="table-wrap" *ngIf="votes.length; else noVotes">
-        <table>
+        <table class="stack-cards">
           <thead><tr><th>Διαμέρισμα</th><th>Ψήφος</th><th>Χρήστης</th><th>Ενημέρωση</th></tr></thead>
           <tbody>
             <tr *ngFor="let row of votes">
-              <td>{{ row.apartment_label }}</td>
-              <td>{{ getVoteLabel(row.vote_value) }}</td>
-              <td>{{ row.voter_username || '-' }}</td>
-              <td>{{ row.updated_at | date: 'dd/MM/yyyy HH:mm' }}</td>
+              <td class="card-title">{{ row.apartment_label }}</td>
+              <td data-label="Ψήφος">{{ getVoteLabel(row.vote_value) }}</td>
+              <td data-label="Χρήστης">{{ row.voter_username || '-' }}</td>
+              <td data-label="Ενημέρωση">{{ row.updated_at | date: 'dd/MM/yyyy HH:mm' }}</td>
             </tr>
           </tbody>
         </table>
@@ -129,7 +129,7 @@ type VoteResults = {
         </div>
 
         <div class="results-table-wrap">
-          <table class="results-table">
+          <table class="results-table stack-cards">
             <thead>
               <tr>
                 <th>Επιλογή</th>
@@ -139,23 +139,23 @@ type VoteResults = {
             </thead>
             <tbody>
               <tr *ngFor="let row of optionResults">
-                <td>{{ row.label }}</td>
-                <td>{{ row.count }}</td>
-                <td>{{ row.permille.toFixed(1) }}</td>
+                <td class="card-title">{{ row.label }}</td>
+                <td data-label="Ψήφοι">{{ row.count }}</td>
+                <td data-label="Χιλιοστά">{{ row.permille.toFixed(1) }}</td>
               </tr>
             </tbody>
             <tfoot>
               <tr>
-                <td>Επιλέξιμα διαμερίσματα</td>
-                <td colspan="2">{{ results.eligible_apartments }}</td>
+                <td class="summary-label">Επιλέξιμα διαμερίσματα</td>
+                <td data-label="" colspan="2">{{ results.eligible_apartments }}</td>
               </tr>
               <tr>
-                <td>Συνολικές ψήφοι</td>
-                <td colspan="2">{{ results.submitted_votes }}</td>
+                <td class="summary-label">Συνολικές ψήφοι</td>
+                <td data-label="" colspan="2">{{ results.submitted_votes }}</td>
               </tr>
               <tr>
-                <td>Σύνολο κατατεθειμένων χιλιοστών</td>
-                <td colspan="2">{{ submittedPermille.toFixed(1) }}</td>
+                <td class="summary-label">Σύνολο κατατεθειμένων χιλιοστών</td>
+                <td data-label="" colspan="2">{{ submittedPermille.toFixed(1) }}</td>
               </tr>
             </tfoot>
           </table>
@@ -169,7 +169,7 @@ type VoteResults = {
   `,
   styles: `
     .panel { border: 1px solid #243152; background: #101a33; border-radius: 12px; padding: 1rem; margin-bottom: 1rem; }
-    .head { display: flex; justify-content: space-between; align-items: center; gap: 0.7rem; margin-bottom: 0.55rem; }
+    .head { display: flex; justify-content: space-between; align-items: center; gap: 0.7rem; margin-bottom: 0.55rem; flex-wrap: wrap; }
     .back-link { color: #b9cbf3; text-decoration: none; font-weight: 600; }
     h2, h3 { margin: 0; color: #eef3ff; }
     p { margin: 0.2rem 0 0; color: #9db1e2; }

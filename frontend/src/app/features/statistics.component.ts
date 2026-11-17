@@ -380,6 +380,31 @@ const PLOT_HEIGHT = CHART_HEIGHT - CHART_PAD_TOP - CHART_PAD_BOTTOM;
       line-height: 1.15;
       max-width: 100%;
     }
+    @media (max-width: 1023px) {
+      .line-chart-wrap,
+      .line-chart-main,
+      .point-layer,
+      .x-axis,
+      .y-axis,
+      .bars,
+      .panel {
+        max-width: 100%;
+        overflow: hidden;
+      }
+      .bars {
+        overflow-x: hidden;
+      }
+      .bar-col {
+        flex: 1 1 0;
+        min-width: 0;
+      }
+      .bar-total,
+      .bar-label {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        max-width: 100%;
+      }
+    }
   `,
 })
 export class StatisticsComponent implements OnInit, OnDestroy {

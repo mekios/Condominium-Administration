@@ -200,6 +200,8 @@ type SessionFormModel = {
     }
     .modal {
       width: min(860px, 100%);
+      max-height: calc(100dvh - 2rem);
+      overflow: auto;
       border: 1px solid #334b84;
       border-radius: 14px;
       background: linear-gradient(160deg, #121f42, #0f1832);
@@ -234,9 +236,16 @@ type SessionFormModel = {
         grid-template-columns: repeat(2, minmax(0, 1fr));
       }
     }
-    @media (max-width: 640px) {
+    @media (max-width: 767px) {
       .session-grid {
         grid-template-columns: 1fr;
+      }
+      .actions {
+        flex-direction: column;
+        align-items: stretch;
+      }
+      .actions .btn {
+        width: 100%;
       }
     }
   `,

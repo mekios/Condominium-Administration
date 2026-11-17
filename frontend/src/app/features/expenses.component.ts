@@ -63,7 +63,7 @@ type ExpenseItem = {
           <h3>{{ selectedMonth | monthFormat }}</h3>
           <p>{{ expenses.length }} έξοδα · Σύνολο {{ monthTotal | euro }}</p>
         </div>
-        <table class="draft-table">
+        <table class="draft-table stack-cards">
           <thead>
             <tr>
               <th>ID</th>
@@ -83,8 +83,8 @@ type ExpenseItem = {
               [class.readonly-row]="!writeEnabled"
               (click)="openExpense(expense.id)"
             >
-              <td>{{ expense.id }}</td>
-              <td class="cat-cell">
+              <td data-label="ID">{{ expense.id }}</td>
+              <td class="cat-cell card-title">
                 <span class="cat-inner">
                   <svg
                     *ngIf="getIconPath(expense.expense_category)"
@@ -99,12 +99,12 @@ type ExpenseItem = {
                   <span>{{ getDisplayLabel(expense) }}</span>
                 </span>
               </td>
-              <td>{{ expense.expense_date }}</td>
-              <td>{{ expense.amount | euro }}</td>
-              <td>{{ expense.affected_period_start || '-' }}</td>
-              <td>{{ expense.affected_period_end || '-' }}</td>
-              <td>{{ descriptionColumnValue(expense) }}</td>
-              <td *ngIf="writeEnabled" class="actions-cell">
+              <td data-label="Ημερομηνία">{{ expense.expense_date }}</td>
+              <td data-label="Ποσό">{{ expense.amount | euro }}</td>
+              <td data-label="Έναρξη περιόδου">{{ expense.affected_period_start || '-' }}</td>
+              <td data-label="Λήξη περιόδου">{{ expense.affected_period_end || '-' }}</td>
+              <td data-label="Περιγραφή">{{ descriptionColumnValue(expense) }}</td>
+              <td *ngIf="writeEnabled" class="actions-cell" data-label="Ενέργειες">
                 <button
                   class="btn btn-danger btn-danger-icon"
                   aria-label="Διαγραφή"
@@ -150,6 +150,9 @@ type ExpenseItem = {
     .actions {
       margin-top: 0.8rem;
       margin-bottom: 0.5rem;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.5rem;
     }
     .btn {
       border: 0;
@@ -164,7 +167,6 @@ type ExpenseItem = {
       box-shadow: 0 8px 18px rgba(70, 95, 255, 0.35);
     }
     .btn-ghost {
-      margin-left: 0.6rem;
       background: transparent;
       border: 1px solid #3b4b79;
     }
@@ -230,10 +232,13 @@ type ExpenseItem = {
       stroke-linecap: round;
       stroke-linejoin: round;
     }
-    @media (max-width: 900px) {
-      .btn-ghost {
-        margin-left: 0;
-        margin-top: 0.5rem;
+    @media (max-width: 767px) {
+      .actions {
+        flex-direction: column;
+        align-items: stretch;
+      }
+      .actions .btn {
+        width: 100%;
       }
     }
   `,
