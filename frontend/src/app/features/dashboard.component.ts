@@ -29,6 +29,7 @@ type ExpenseItem = {
   month: string;
   amount: string;
   description: string;
+  is_paid?: boolean;
 };
 
 type Building = {
@@ -127,6 +128,9 @@ type ApartmentMeasurementChart = {
           </div>
           <div><span>- Ανεξόφλητα</span><strong>{{ unpaidTotal | euro }}</strong></div>
           <div><span>- Τρέχοντα έξοδα</span><strong>{{ unbilledExpensesTotal | euro }}</strong></div>
+          <div class="unpaid-expenses-row" *ngIf="unpaidExpensesTotal > 0">
+            <span>+ Ανεξόφλητα έξοδα</span><strong>{{ unpaidExpensesTotal | euro }}</strong>
+          </div>
         </div>
         <div class="finance-meter" role="presentation">
           <span class="fill" [style.width.%]="balanceFillPercent"></span>
@@ -499,6 +503,12 @@ type ApartmentMeasurementChart = {
       color: #e8f0ff;
       font-size: 1.05rem;
       font-weight: 700;
+    }
+    .unpaid-expenses-row span {
+      color: #ffc08a;
+    }
+    .unpaid-expenses-row strong {
+      color: #ffd7b0;
     }
     .finance-meter {
       margin-top: 0.45rem;
@@ -955,6 +965,7 @@ export class DashboardComponent implements OnInit, OnDestroy {
   latestExpensesTotal = 0;
   unpaidTotal = 0;
   unbilledExpensesTotal = 0;
+  unpaidExpensesTotal = 0;
   buildingFinanceBalance = 0;
   balanceFillPercent = 100;
   canManage = false;
@@ -1036,11 +1047,15 @@ export class DashboardComponent implements OnInit, OnDestroy {
               .filter((invoice) => invoice.status === 'issued' || invoice.status === 'paid')
               .map((invoice) => invoice.month),
           );
-          this.unbilledExpensesTotal = expenses
-            .filter(
-              (expense) =>
-                !isFundIncreaseCategory(expense.expense_category) && !billedMonths.has(expense.month),
-            )
+          const countableExpenses = expenses.filter(
+            (expense) => !isFundIncreaseCategory(expense.expense_category),
+          );
+          // Option A: τρέχοντα includes all unbilled; unpaid supplier costs are added back via Ανεξόφλητα έξοδα.
+          this.unbilledExpensesTotal = countableExpenses
+            .filter((expense) => !billedMonths.has(expense.month))
+            .reduce((sum, expense) => sum + Number(expense.amount || 0), 0);
+          this.unpaidExpensesTotal = countableExpenses
+            .filter((expense) => expense.is_paid === false)
             .reduce((sum, expense) => sum + Number(expense.amount || 0), 0);
           this.latestExpenses = this.latestIssuedMonth
             ? expenses.filter((expense) => expense.month === this.latestIssuedMonth)
@@ -1130,7 +1145,8 @@ export class DashboardComponent implements OnInit, OnDestroy {
   }
 
   private recomputeBuildingBalance(): void {
-    this.buildingFinanceBalance = this.openingBalance - this.unpaidTotal - this.unbilledExpensesTotal;
+    this.buildingFinanceBalance =
+      this.openingBalance - this.unpaidTotal - this.unbilledExpensesTotal + this.unpaidExpensesTotal;
     const ratio = this.openingBalance > 0 ? (this.buildingFinanceBalance / this.openingBalance) * 100 : 0;
     this.balanceFillPercent = Math.max(0, Math.min(100, ratio));
   }

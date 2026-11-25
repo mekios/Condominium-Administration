@@ -29,6 +29,7 @@ type ExpenseItem = {
   affected_period_end?: string;
   amount: string;
   description: string;
+  is_paid?: boolean;
 };
 
 @Component({
@@ -70,6 +71,7 @@ type ExpenseItem = {
               <th>Κατηγορία</th>
               <th>Ημερομηνία</th>
               <th>Ποσό</th>
+              <th>Κατάσταση</th>
               <th>Έναρξη περιόδου</th>
               <th>Λήξη περιόδου</th>
               <th>Περιγραφή</th>
@@ -81,6 +83,7 @@ type ExpenseItem = {
               *ngFor="let expense of expenses"
               [class.clickable-row]="writeEnabled"
               [class.readonly-row]="!writeEnabled"
+              [class.unpaid-row]="isUnpaid(expense)"
               (click)="openExpense(expense.id)"
             >
               <td data-label="ID">{{ expense.id }}</td>
@@ -101,6 +104,11 @@ type ExpenseItem = {
               </td>
               <td data-label="Ημερομηνία">{{ expense.expense_date }}</td>
               <td data-label="Ποσό">{{ expense.amount | euro }}</td>
+              <td data-label="Κατάσταση">
+                <span class="pay-status" [class.pay-status-unpaid]="isUnpaid(expense)">
+                  {{ isUnpaid(expense) ? 'Μη εξοφλημένο' : 'Εξοφλημένο' }}
+                </span>
+              </td>
               <td data-label="Έναρξη περιόδου">{{ expense.affected_period_start || '-' }}</td>
               <td data-label="Λήξη περιόδου">{{ expense.affected_period_end || '-' }}</td>
               <td data-label="Περιγραφή">{{ descriptionColumnValue(expense) }}</td>
@@ -212,6 +220,22 @@ type ExpenseItem = {
     }
     .readonly-row {
       cursor: default;
+    }
+    .unpaid-row td {
+      background: rgba(255, 140, 66, 0.08);
+    }
+    .pay-status {
+      display: inline-block;
+      border-radius: 999px;
+      padding: 0.18rem 0.55rem;
+      font-size: 0.78rem;
+      font-weight: 600;
+      background: rgba(71, 180, 120, 0.18);
+      color: #8dffb4;
+    }
+    .pay-status-unpaid {
+      background: rgba(255, 140, 66, 0.2);
+      color: #ffc08a;
     }
     .cat-inner {
       display: inline-flex;
@@ -351,6 +375,10 @@ export class ExpensesComponent implements OnInit {
       return '-';
     }
     return expense.description || '-';
+  }
+
+  isUnpaid(expense: ExpenseItem): boolean {
+    return expense.expense_category !== 'fund_increase' && expense.is_paid === false;
   }
 
   private loadMe(): void {

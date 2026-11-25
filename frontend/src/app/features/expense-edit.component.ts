@@ -19,6 +19,7 @@ type ExpensePayload = {
   affected_period_end?: string | null;
   amount: string;
   description: string;
+  is_paid: boolean;
 };
 
 type ExpenseItem = {
@@ -31,6 +32,7 @@ type ExpenseItem = {
   affected_period_end?: string | null;
   amount: string;
   description: string;
+  is_paid: boolean;
 };
 
 type DraftInvoiceItem = {
@@ -107,6 +109,25 @@ type DraftInvoiceItem = {
           Περιγραφή
           <input type="text" [(ngModel)]="expense.description" />
         </label>
+        <div class="paid-toggle" *ngIf="expense.expense_category !== 'fund_increase'">
+          <button
+            type="button"
+            class="switch"
+            role="switch"
+            [attr.aria-checked]="expense.is_paid"
+            [class.on]="expense.is_paid"
+            (click)="expense.is_paid = !expense.is_paid"
+          >
+            <span class="switch-thumb" aria-hidden="true"></span>
+          </button>
+          <div class="paid-toggle-text">
+            <span class="paid-toggle-label">Εξοφλημένο προς προμηθευτή</span>
+            <span class="paid-toggle-state">{{ expense.is_paid ? 'Ναι' : 'Όχι' }}</span>
+          </div>
+        </div>
+        <p class="hint full" *ngIf="expense.expense_category !== 'fund_increase' && !expense.is_paid">
+          Μη εξοφλημένο έξοδο: παραμένει στο ταμείο και εμφανίζεται στα ανεξόφλητα έξοδα του πίνακα ελέγχου.
+        </p>
       </div>
 
       <div class="actions" *ngIf="expense && !loading">
@@ -187,6 +208,59 @@ type DraftInvoiceItem = {
     }
     label.full {
       grid-column: 1 / -1;
+    }
+    .paid-toggle {
+      grid-column: 1 / -1;
+      display: flex;
+      align-items: center;
+      justify-content: flex-start;
+      gap: 0.85rem;
+      border: 1px solid #31416c;
+      border-radius: 10px;
+      background: #0d1430;
+      padding: 0.65rem 0.8rem;
+    }
+    .paid-toggle-text {
+      display: grid;
+      gap: 0.15rem;
+      min-width: 0;
+    }
+    .paid-toggle-label {
+      color: #b5c9f5;
+      font-size: 0.86rem;
+    }
+    .paid-toggle-state {
+      color: #93a8da;
+      font-size: 0.8rem;
+    }
+    .switch {
+      position: relative;
+      width: 2.75rem;
+      height: 1.55rem;
+      flex-shrink: 0;
+      border: 0;
+      border-radius: 999px;
+      background: #3b4b79;
+      cursor: pointer;
+      padding: 0;
+      transition: background 0.18s ease;
+    }
+    .switch.on {
+      background: linear-gradient(135deg, #4f78ff, #6d62ff);
+    }
+    .switch-thumb {
+      position: absolute;
+      top: 0.18rem;
+      left: 0.18rem;
+      width: 1.2rem;
+      height: 1.2rem;
+      border-radius: 50%;
+      background: #fff;
+      box-shadow: 0 2px 6px rgba(0, 0, 0, 0.35);
+      transition: transform 0.18s ease;
+    }
+    .switch.on .switch-thumb {
+      transform: translateX(1.2rem);
     }
     .category-select-wrap {
       display: flex;
@@ -324,7 +398,11 @@ export class ExpenseEditComponent implements OnInit {
   }
 
   onCategoryChange(): void {
-    if (!this.expense || this.requiresMeasurementRange()) return;
+    if (!this.expense) return;
+    if (this.expense.expense_category === 'fund_increase') {
+      this.expense.is_paid = true;
+    }
+    if (this.requiresMeasurementRange()) return;
     // For non-measurement categories, send null dates instead of empty strings.
     this.expense.affected_period_start = null;
     this.expense.affected_period_end = null;
@@ -345,6 +423,7 @@ export class ExpenseEditComponent implements OnInit {
       affected_period_end: this.expense.affected_period_end || null,
       amount: this.expense.amount,
       description: this.expense.description || '',
+      is_paid: this.expense.expense_category === 'fund_increase' ? true : !!this.expense.is_paid,
     };
     const request$ = this.isCreateMode
       ? this.http.post<ExpenseItem>(`${API_BASE}/api/accounting/expenses/`, payload)
@@ -425,6 +504,7 @@ export class ExpenseEditComponent implements OnInit {
           ...expense,
           affected_period_start: expense.affected_period_start || null,
           affected_period_end: expense.affected_period_end || null,
+          is_paid: expense.is_paid !== false,
         };
         this.previewMonth = expense.expense_date.slice(0, 7);
         this.loading = false;
@@ -448,6 +528,7 @@ export class ExpenseEditComponent implements OnInit {
       affected_period_end: '',
       amount: '',
       description: '',
+      is_paid: false,
     };
     this.previewMonth = this.expense.month;
     this.loading = false;

@@ -97,6 +97,7 @@ Negative reading deltas are rejected. A date is locked for edits once invoices e
 - `month` (`YYYY-MM`, set from `expense_date` on save)
 - `affected_period_start`, `affected_period_end` (used for gas and hot-water bills)
 - `amount`, `description`
+- `is_paid` (default true). Whether the building has paid the supplier. Unpaid expenses stay in ταμείο and appear on the dashboard as ανεξόφλητα έξοδα. `fund_increase` is always paid.
 - `created_by_user`
 
 Categories:

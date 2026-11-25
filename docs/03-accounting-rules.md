@@ -84,13 +84,15 @@ Status becomes `paid` when outstanding is 0 and some payment exists. Otherwise a
 ## 8. Building reserve on the dashboard
 `openingBalance` is `Building.fund_balance`.
 
-`unpaidTotal` is the sum of `outstanding_balance` for invoices with a positive balance (building-wide for admins, `building_scope=1` for residents).
+`unpaidTotal` (Ανεξόφλητα) is the sum of `outstanding_balance` for invoices with a positive balance (building-wide for admins, `building_scope=1` for residents).
 
-`unbilledExpensesTotal` is the sum of expense amounts whose month has no invoice in status `issued` or `paid`. `fund_increase` rows are left out, because they already sit in the reserve.
+`unbilledExpensesTotal` (Τρέχοντα έξοδα) is the sum of expense amounts whose month has no invoice in status `issued` or `paid`. `fund_increase` rows are left out. Paid and unpaid supplier expenses are both included here.
 
-`remaining = openingBalance − unpaidTotal − unbilledExpensesTotal`
+`unpaidExpensesTotal` (Ανεξόφλητα έξοδα) is the sum of expenses with `is_paid=false` (excluding `fund_increase`), whether or not that month is already billed.
 
-Issued months are not subtracted again as expenses. Their unpaid part is already in `unpaidTotal`.
+`remaining = openingBalance − unpaidTotal − unbilledExpensesTotal + unpaidExpensesTotal`
+
+Unpaid supplier amounts appear in τρέχοντα when still unbilled, and are added back via Ανεξόφλητα έξοδα so ταμείο is unchanged until the expense is marked paid. Issued months are not subtracted again as τρέχοντα; their apartment unpaid part stays in `unpaidTotal`, offset by `+ unpaidExpensesTotal` while the supplier is unpaid.
 
 ## 9. Payments and recall
 - A payment does not change computed component totals.

@@ -199,6 +199,8 @@ class ExpenseItem(models.Model):
     affected_period_end = models.DateField(null=True, blank=True)
     amount = models.DecimalField(max_digits=14, decimal_places=2)
     description = models.TextField(blank=True)
+    # Paid to the supplier/vendor. Unpaid expenses stay in ταμείο and show on the dashboard.
+    is_paid = models.BooleanField(default=True)
     created_by_user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)

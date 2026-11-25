@@ -1619,6 +1619,69 @@ class BuildingFundBalanceTests(APITestCase):
         self.assertEqual(self.building.fund_balance, Decimal("4500.00"))
 
 
+class ExpensePaidStatusTests(APITestCase):
+    def setUp(self):
+        self.admin = User.objects.create_user(
+            username="admin_expense_paid",
+            password="pass1234",
+            role=User.Role.ADMINISTRATOR,
+        )
+        self.client.force_authenticate(user=self.admin)
+        self.building = Building.objects.create(name="PaidStatus B1", fund_balance=Decimal("1000.00"))
+
+    def test_create_expense_can_be_unpaid(self):
+        response = self.client.post(
+            reverse("expenses-list"),
+            {
+                "building": self.building.id,
+                "expense_category": ExpenseItem.Category.CLEANING,
+                "expense_date": "2026-08-01",
+                "amount": "100.00",
+                "description": "Καθαρισμός",
+                "is_paid": False,
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertFalse(response.data["is_paid"])
+        expense = ExpenseItem.objects.get(pk=response.data["id"])
+        self.assertFalse(expense.is_paid)
+
+    def test_patch_marks_expense_paid(self):
+        expense = ExpenseItem.objects.create(
+            building=self.building,
+            expense_category=ExpenseItem.Category.CLEANING,
+            expense_date=date(2026, 8, 1),
+            amount=Decimal("100.00"),
+            is_paid=False,
+            created_by_user=self.admin,
+        )
+        response = self.client.patch(
+            reverse("expenses-detail", args=[expense.id]),
+            {"is_paid": True},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        expense.refresh_from_db()
+        self.assertTrue(expense.is_paid)
+
+    def test_fund_increase_is_always_paid(self):
+        response = self.client.post(
+            reverse("expenses-list"),
+            {
+                "building": self.building.id,
+                "expense_category": ExpenseItem.Category.FUND_INCREASE,
+                "expense_date": "2026-08-01",
+                "amount": "50.00",
+                "description": "Εισφορά",
+                "is_paid": False,
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertTrue(response.data["is_paid"])
+
+
 class FundIncreaseExpenseTests(APITestCase):
     def setUp(self):
         self.admin = User.objects.create_user(

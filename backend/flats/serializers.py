@@ -117,6 +117,7 @@ class ExpenseItemSerializer(serializers.ModelSerializer):
             "affected_period_end",
             "amount",
             "description",
+            "is_paid",
             "created_by_user",
             "created_at",
             "updated_at",
@@ -148,6 +149,7 @@ class ExpenseItemSerializer(serializers.ModelSerializer):
         if category == ExpenseItem.Category.FUND_INCREASE:
             attrs["affected_period_start"] = None
             attrs["affected_period_end"] = None
+            attrs["is_paid"] = True
         if affected_start and affected_end and affected_start > affected_end:
             raise serializers.ValidationError("Το affected_period_start δεν μπορεί να είναι μετά το affected_period_end.")
         return attrs

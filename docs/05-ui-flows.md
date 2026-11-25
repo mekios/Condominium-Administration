@@ -34,7 +34,7 @@ Tokens are stored by `AuthService` and attached by the auth interceptor.
 ## 3. Dashboard (`/app/dashboard`)
 Shows the caller’s apartments, unpaid or latest invoices, measurement charts, and the building reserve.
 
-Remaining capital = reserve − unpaid invoice balances − expenses whose month is not yet issued or paid. Fund-increase expenses are excluded from that last term. Admins in management mode can patch `fund_balance` inline.
+Remaining capital = reserve − ανεξόφλητα (apartment outstanding) − τρέχοντα έξοδα (all expenses whose month is not yet issued or paid) + ανεξόφλητα έξοδα (`is_paid=false`). Fund-increase expenses are excluded from the expense terms. Admins in management mode can patch `fund_balance` inline.
 
 A personalized greeting uses the profile name. Invoice PDF download is available from the invoice cards. The analysis screen is opened from here.
 

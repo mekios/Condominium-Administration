@@ -81,6 +81,8 @@ Low-level routes still exist for heating and heated-water viewsets: list, create
 
 Create body: `expense_category`, `expense_date`, `amount`, optional `description`. Gas and hot-water bills also send `affected_period_start` and `affected_period_end`.
 
+Expense bodies include `is_paid` (boolean, default true): paid to the supplier. `fund_increase` is always stored as paid. Unpaid expenses stay in the dashboard ταμείο and appear under Ανεξόφλητα έξοδα.
+
 `fund_increase` updates `Building.fund_balance` inside the same transaction. Category rules are in `docs/03-accounting-rules.md`.
 
 ## 6. Invoices
