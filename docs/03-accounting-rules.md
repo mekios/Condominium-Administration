@@ -86,11 +86,13 @@ Status becomes `paid` when outstanding is 0 and some payment exists. Otherwise a
 
 `unpaidTotal` (Ανεξόφλητα) is apartment `outstanding_balance` sum, minus `fund_increase` amounts for **fund-only** issued months that still have outstanding balances (no operating expenses that month). Issuing a month that only has αποθεματικό therefore does not change ταμείο.
 
-`unbilledExpensesTotal` (Τρέχοντα έξοδα) is unbilled non-`fund_increase` expenses plus **all** `fund_increase` amounts. Reserve top-ups raise Αποθεματικό and Τρέχοντα together, so ταμείο never includes them.
+`unbilledExpensesTotal` (Τρέχοντα έξοδα) is non-`fund_increase` expenses whose month has no invoice in status `issued` or `paid`.
+
+`fundIncreaseTotal` is the sum of all `fund_increase` expenses. It is subtracted in ταμείο but not shown as its own dashboard line, so Τρέχοντα stays operating-only.
 
 `unpaidExpensesTotal` (Ανεξόφλητα έξοδα) is the sum of expenses with `is_paid=false` (excluding `fund_increase`), whether or not that month is already billed.
 
-`remaining = openingBalance − unpaidTotal − unbilledExpensesTotal + unpaidExpensesTotal`
+`remaining = openingBalance − unpaidTotal − unbilledExpensesTotal − fundIncreaseTotal + unpaidExpensesTotal`
 
 Unpaid supplier amounts appear in τρέχοντα when still unbilled, and are added back via Ανεξόφλητα έξοδα so ταμείο is unchanged until the expense is marked paid. Issued months are not subtracted again as τρέχοντα; their apartment unpaid part stays in `unpaidTotal`, offset by `+ unpaidExpensesTotal` while the supplier is unpaid.
 

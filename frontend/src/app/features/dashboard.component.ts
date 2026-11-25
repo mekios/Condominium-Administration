@@ -965,6 +965,7 @@ export class DashboardComponent implements OnInit, OnDestroy {
   latestExpensesTotal = 0;
   unpaidTotal = 0;
   unbilledExpensesTotal = 0;
+  fundIncreaseTotal = 0;
   unpaidExpensesTotal = 0;
   buildingFinanceBalance = 0;
   balanceFillPercent = 100;
@@ -1055,7 +1056,7 @@ export class DashboardComponent implements OnInit, OnDestroy {
           const nonFundExpenses = expenses.filter(
             (expense) => !isFundIncreaseCategory(expense.expense_category),
           );
-          const fundIncreaseTotal = expenses
+          this.fundIncreaseTotal = expenses
             .filter((expense) => isFundIncreaseCategory(expense.expense_category))
             .reduce((sum, expense) => sum + Number(expense.amount || 0), 0);
           const monthsWithOperatingExpenses = new Set(
@@ -1074,11 +1075,10 @@ export class DashboardComponent implements OnInit, OnDestroy {
             )
             .reduce((sum, expense) => sum + Number(expense.amount || 0), 0);
           this.unpaidTotal = Math.max(0, rawUnpaidInvoices - fundOnlyUnpaidTotal);
-          // All fund_increase amounts stay in τρέχοντα so they never raise ταμείο.
-          this.unbilledExpensesTotal =
-            nonFundExpenses
-              .filter((expense) => !billedMonths.has(expense.month))
-              .reduce((sum, expense) => sum + Number(expense.amount || 0), 0) + fundIncreaseTotal;
+          // Τρέχοντα = unbilled operating expenses only (not fund_increase).
+          this.unbilledExpensesTotal = nonFundExpenses
+            .filter((expense) => !billedMonths.has(expense.month))
+            .reduce((sum, expense) => sum + Number(expense.amount || 0), 0);
           this.unpaidExpensesTotal = nonFundExpenses
             .filter((expense) => expense.is_paid === false)
             .reduce((sum, expense) => sum + Number(expense.amount || 0), 0);
@@ -1172,7 +1172,11 @@ export class DashboardComponent implements OnInit, OnDestroy {
 
   private recomputeBuildingBalance(): void {
     this.buildingFinanceBalance =
-      this.openingBalance - this.unpaidTotal - this.unbilledExpensesTotal + this.unpaidExpensesTotal;
+      this.openingBalance -
+      this.unpaidTotal -
+      this.unbilledExpensesTotal -
+      this.fundIncreaseTotal +
+      this.unpaidExpensesTotal;
     const ratio = this.openingBalance > 0 ? (this.buildingFinanceBalance / this.openingBalance) * 100 : 0;
     this.balanceFillPercent = Math.max(0, Math.min(100, ratio));
   }
