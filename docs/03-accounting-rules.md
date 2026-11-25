@@ -84,9 +84,9 @@ Status becomes `paid` when outstanding is 0 and some payment exists. Otherwise a
 ## 8. Building reserve on the dashboard
 `openingBalance` is `Building.fund_balance`.
 
-`unpaidTotal` (Ανεξόφλητα) is the sum of `outstanding_balance` for invoices with a positive balance (building-wide for admins, `building_scope=1` for residents).
+`unpaidTotal` (Ανεξόφλητα) is apartment `outstanding_balance` sum, minus `fund_increase` amounts for **fund-only** issued months that still have outstanding balances (no operating expenses that month). Issuing a month that only has αποθεματικό therefore does not change ταμείο.
 
-`unbilledExpensesTotal` (Τρέχοντα έξοδα) is the sum of non-`fund_increase` expenses whose month has no invoice in status `issued` or `paid`, plus **all** `fund_increase` amounts. Reserve top-ups raise Αποθεματικό and this line together, so ταμείο never includes `fund_increase`. Paid and unpaid supplier expenses are both included in the unbilled term.
+`unbilledExpensesTotal` (Τρέχοντα έξοδα) is unbilled non-`fund_increase` expenses plus **all** `fund_increase` amounts. Reserve top-ups raise Αποθεματικό and Τρέχοντα together, so ταμείο never includes them.
 
 `unpaidExpensesTotal` (Ανεξόφλητα έξοδα) is the sum of expenses with `is_paid=false` (excluding `fund_increase`), whether or not that month is already billed.
 

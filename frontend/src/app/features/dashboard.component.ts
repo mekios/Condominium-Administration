@@ -1039,7 +1039,7 @@ export class DashboardComponent implements OnInit, OnDestroy {
           this.latestInvoices = this.findLatestInvoices(personalInvoices);
           this.displayInvoices = this.unpaidInvoices.length ? this.unpaidInvoices : this.latestInvoices;
           this.latestIssuedMonth = this.findLatestIssuedMonth(buildingInvoices);
-          this.unpaidTotal = buildingInvoices
+          const rawUnpaidInvoices = buildingInvoices
             .filter((inv) => Number(inv.outstanding_balance) > 0)
             .reduce((sum, inv) => sum + Number(inv.outstanding_balance || 0), 0);
           const billedMonths = new Set(
@@ -1047,14 +1047,34 @@ export class DashboardComponent implements OnInit, OnDestroy {
               .filter((invoice) => invoice.status === 'issued' || invoice.status === 'paid')
               .map((invoice) => invoice.month),
           );
+          const monthsWithOutstanding = new Set(
+            buildingInvoices
+              .filter((inv) => Number(inv.outstanding_balance) > 0)
+              .map((inv) => inv.month),
+          );
           const nonFundExpenses = expenses.filter(
             (expense) => !isFundIncreaseCategory(expense.expense_category),
           );
           const fundIncreaseTotal = expenses
             .filter((expense) => isFundIncreaseCategory(expense.expense_category))
             .reduce((sum, expense) => sum + Number(expense.amount || 0), 0);
-          // Option A: τρέχοντα = unbilled operating expenses + all fund_increase amounts.
-          // Reserve top-ups raise Αποθεματικό and this line together, so ταμείο ignores them.
+          const monthsWithOperatingExpenses = new Set(
+            nonFundExpenses.map((expense) => expense.month),
+          );
+          // Fund-only billed months (e.g. only αποθεματικό): keep that outstanding out of
+          // ανεξόφλητα so issuing them does not change ταμείο.
+          const fundOnlyUnpaidMonths = [...monthsWithOutstanding].filter(
+            (month) => billedMonths.has(month) && !monthsWithOperatingExpenses.has(month),
+          );
+          const fundOnlyUnpaidTotal = expenses
+            .filter(
+              (expense) =>
+                isFundIncreaseCategory(expense.expense_category) &&
+                fundOnlyUnpaidMonths.includes(expense.month),
+            )
+            .reduce((sum, expense) => sum + Number(expense.amount || 0), 0);
+          this.unpaidTotal = Math.max(0, rawUnpaidInvoices - fundOnlyUnpaidTotal);
+          // All fund_increase amounts stay in τρέχοντα so they never raise ταμείο.
           this.unbilledExpensesTotal =
             nonFundExpenses
               .filter((expense) => !billedMonths.has(expense.month))
