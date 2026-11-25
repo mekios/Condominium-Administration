@@ -965,7 +965,8 @@ export class DashboardComponent implements OnInit, OnDestroy {
   latestExpensesTotal = 0;
   unpaidTotal = 0;
   unbilledExpensesTotal = 0;
-  fundIncreaseTotal = 0;
+  /** Unbilled fund_increase — in Αποθεματικό already, not yet on invoices; hidden in cash math. */
+  unbilledFundIncreaseTotal = 0;
   unpaidExpensesTotal = 0;
   buildingFinanceBalance = 0;
   balanceFillPercent = 100;
@@ -1048,36 +1049,23 @@ export class DashboardComponent implements OnInit, OnDestroy {
               .filter((invoice) => invoice.status === 'issued' || invoice.status === 'paid')
               .map((invoice) => invoice.month),
           );
-          const monthsWithOutstanding = new Set(
-            buildingInvoices
-              .filter((inv) => Number(inv.outstanding_balance) > 0)
-              .map((inv) => inv.month),
-          );
           const nonFundExpenses = expenses.filter(
             (expense) => !isFundIncreaseCategory(expense.expense_category),
           );
-          this.fundIncreaseTotal = expenses
-            .filter((expense) => isFundIncreaseCategory(expense.expense_category))
-            .reduce((sum, expense) => sum + Number(expense.amount || 0), 0);
-          const monthsWithOperatingExpenses = new Set(
-            nonFundExpenses.map((expense) => expense.month),
-          );
-          // Fund-only billed months (e.g. only αποθεματικό): keep that outstanding out of
-          // ανεξόφλητα so issuing them does not change ταμείο.
-          const fundOnlyUnpaidMonths = [...monthsWithOutstanding].filter(
-            (month) => billedMonths.has(month) && !monthsWithOperatingExpenses.has(month),
-          );
-          const fundOnlyUnpaidTotal = expenses
-            .filter(
-              (expense) =>
-                isFundIncreaseCategory(expense.expense_category) &&
-                fundOnlyUnpaidMonths.includes(expense.month),
-            )
-            .reduce((sum, expense) => sum + Number(expense.amount || 0), 0);
-          this.unpaidTotal = Math.max(0, rawUnpaidInvoices - fundOnlyUnpaidTotal);
-          // Τρέχοντα = unbilled operating expenses only (not fund_increase).
+          // Ανεξόφλητα includes unpaid αποθεματικό shares on apartment bills — that is not cash yet.
+          this.unpaidTotal = rawUnpaidInvoices;
+          // Τρέχοντα = unbilled operating expenses only.
           this.unbilledExpensesTotal = nonFundExpenses
             .filter((expense) => !billedMonths.has(expense.month))
+            .reduce((sum, expense) => sum + Number(expense.amount || 0), 0);
+          // fund_increase is added to Αποθεματικό on create. Until the month is billed,
+          // offset it in cash so uncollected reserve is not treated as available.
+          // Once billed, unpaid shares are already inside Ανεξόφλητα.
+          this.unbilledFundIncreaseTotal = expenses
+            .filter(
+              (expense) =>
+                isFundIncreaseCategory(expense.expense_category) && !billedMonths.has(expense.month),
+            )
             .reduce((sum, expense) => sum + Number(expense.amount || 0), 0);
           this.unpaidExpensesTotal = nonFundExpenses
             .filter((expense) => expense.is_paid === false)
@@ -1175,7 +1163,7 @@ export class DashboardComponent implements OnInit, OnDestroy {
       this.openingBalance -
       this.unpaidTotal -
       this.unbilledExpensesTotal -
-      this.fundIncreaseTotal +
+      this.unbilledFundIncreaseTotal +
       this.unpaidExpensesTotal;
     const ratio = this.openingBalance > 0 ? (this.buildingFinanceBalance / this.openingBalance) * 100 : 0;
     this.balanceFillPercent = Math.max(0, Math.min(100, ratio));
