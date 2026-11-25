@@ -86,7 +86,7 @@ Status becomes `paid` when outstanding is 0 and some payment exists. Otherwise a
 
 `unpaidTotal` (Ανεξόφλητα) is the sum of `outstanding_balance` for invoices with a positive balance (building-wide for admins, `building_scope=1` for residents).
 
-`unbilledExpensesTotal` (Τρέχοντα έξοδα) is the sum of expense amounts whose month has no invoice in status `issued` or `paid`. `fund_increase` rows are left out. Paid and unpaid supplier expenses are both included here.
+`unbilledExpensesTotal` (Τρέχοντα έξοδα) is the sum of non-`fund_increase` expenses whose month has no invoice in status `issued` or `paid`, plus **all** `fund_increase` amounts. Reserve top-ups raise Αποθεματικό and this line together, so ταμείο never includes `fund_increase`. Paid and unpaid supplier expenses are both included in the unbilled term.
 
 `unpaidExpensesTotal` (Ανεξόφλητα έξοδα) is the sum of expenses with `is_paid=false` (excluding `fund_increase`), whether or not that month is already billed.
 

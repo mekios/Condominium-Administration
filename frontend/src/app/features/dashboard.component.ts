@@ -1047,19 +1047,25 @@ export class DashboardComponent implements OnInit, OnDestroy {
               .filter((invoice) => invoice.status === 'issued' || invoice.status === 'paid')
               .map((invoice) => invoice.month),
           );
-          const countableExpenses = expenses.filter(
+          const nonFundExpenses = expenses.filter(
             (expense) => !isFundIncreaseCategory(expense.expense_category),
           );
-          // Option A: τρέχοντα includes all unbilled; unpaid supplier costs are added back via Ανεξόφλητα έξοδα.
-          this.unbilledExpensesTotal = countableExpenses
-            .filter((expense) => !billedMonths.has(expense.month))
+          const fundIncreaseTotal = expenses
+            .filter((expense) => isFundIncreaseCategory(expense.expense_category))
             .reduce((sum, expense) => sum + Number(expense.amount || 0), 0);
-          this.unpaidExpensesTotal = countableExpenses
+          // Option A: τρέχοντα = unbilled operating expenses + all fund_increase amounts.
+          // Reserve top-ups raise Αποθεματικό and this line together, so ταμείο ignores them.
+          this.unbilledExpensesTotal =
+            nonFundExpenses
+              .filter((expense) => !billedMonths.has(expense.month))
+              .reduce((sum, expense) => sum + Number(expense.amount || 0), 0) + fundIncreaseTotal;
+          this.unpaidExpensesTotal = nonFundExpenses
             .filter((expense) => expense.is_paid === false)
             .reduce((sum, expense) => sum + Number(expense.amount || 0), 0);
           this.latestExpenses = this.latestIssuedMonth
             ? expenses.filter((expense) => expense.month === this.latestIssuedMonth)
             : [];
+          // Month table can list fund_increase; Σύνολο is operating expenses only.
           this.latestExpensesTotal = this.latestExpenses
             .filter((expense) => !isFundIncreaseCategory(expense.expense_category))
             .reduce((sum, expense) => sum + Number(expense.amount || 0), 0);
